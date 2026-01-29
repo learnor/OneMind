@@ -9,7 +9,7 @@ import {
   Alert,
   Image,
 } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -86,16 +86,25 @@ interface HistoryItemProps {
   colorScheme: 'light' | 'dark';
   onPress: () => void;
   onDelete: () => void;
+  onSwipeWillOpen: () => void;
   onSwipeOpen: () => void;
   onSwipeClose: () => void;
+  onRegisterSwipeable: (id: string, ref: Swipeable | null) => void;
   isSwipeOpen: boolean;
 }
 
-function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwipeOpen, onSwipeClose }: HistoryItemProps) {
+function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwipeWillOpen, onSwipeOpen, onSwipeClose, onRegisterSwipeable }: HistoryItemProps) {
   const colors = Colors[colorScheme];
   const routeType = item.aiResponse?.route_type;
   const statusInfo = getStatusInfo(item.processingStatus);
   const swipeableRef = useRef<Swipeable>(null);
+
+  React.useEffect(() => {
+    onRegisterSwipeable(item.id, swipeableRef.current);
+    return () => {
+      onRegisterSwipeable(item.id, null);
+    };
+  }, [item.id, onRegisterSwipeable]);
 
   React.useEffect(() => {
     if (!isSwipeOpen) {
@@ -116,13 +125,14 @@ function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwip
     <Swipeable
       ref={swipeableRef}
       renderRightActions={() => (
-        <View style={styles.deleteButtonContainer}>
-          <TouchableOpacity style={styles.swipeDeleteButton} onPress={onDelete}>
-            <Ionicons name="trash-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <RectButton style={styles.deleteButtonContainer} onPress={onDelete}>
+          <Ionicons name="trash-outline" size={24} color="#fff" />
+        </RectButton>
       )}
-      rightThreshold={40}
+      rightThreshold={20}
+      friction={1}
+      overshootRight={false}
+      onSwipeableWillOpen={onSwipeWillOpen}
       onSwipeableOpen={onSwipeOpen}
       onSwipeableClose={onSwipeClose}
     >
@@ -213,6 +223,7 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<CaptureHistoryItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+  const swipeableRefs = useRef(new Map<string, Swipeable>());
 
   // Load history when screen is focused
   useFocusEffect(
@@ -232,12 +243,32 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
+  const registerSwipeable = useCallback((id: string, ref: Swipeable | null) => {
+    if (ref) {
+      swipeableRefs.current.set(id, ref);
+    } else {
+      swipeableRefs.current.delete(id);
+    }
+  }, []);
+
   const handleItemPress = (item: CaptureHistoryItem) => {
     if (openSwipeId) {
+      swipeableRefs.current.get(openSwipeId)?.close();
       setOpenSwipeId(null);
       return;
     }
     router.push(`/record/${item.id}`);
+  };
+
+  const handleSwipeWillOpen = (itemId: string) => {
+    if (openSwipeId && openSwipeId !== itemId) {
+      swipeableRefs.current.get(openSwipeId)?.close();
+    }
+    setOpenSwipeId(itemId);
+  };
+
+  const handleSwipeOpen = (itemId: string) => {
+    setOpenSwipeId(itemId);
   };
 
   const handleDeleteItem = async (item: CaptureHistoryItem) => {
@@ -326,8 +357,10 @@ export default function HistoryScreen() {
             isSwipeOpen={openSwipeId === item.id}
             onPress={() => handleItemPress(item)}
             onDelete={() => handleDeleteItem(item)}
-            onSwipeOpen={() => setOpenSwipeId(item.id)}
-            onSwipeClose={() => setOpenSwipeId(null)}
+            onSwipeWillOpen={() => handleSwipeWillOpen(item.id)}
+            onSwipeOpen={() => handleSwipeOpen(item.id)}
+            onSwipeClose={() => setOpenSwipeId(prev => (prev === item.id ? null : prev))}
+            onRegisterSwipeable={registerSwipeable}
           />
         )}
         contentContainerStyle={history.length === 0 ? styles.emptyList : styles.listContent}
@@ -374,13 +407,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.error,
     borderRadius: 12,
-  },
-  swipeDeleteButton: {
-    width: 80,
-    height: '100%',
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   rightContainer: {
     flexDirection: 'row',
