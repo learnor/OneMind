@@ -112,6 +112,14 @@ export default function RecordDetailScreen() {
     );
   };
 
+  const handleEditStart = () => {
+    if (!item?.aiResponse) {
+      return;
+    }
+    setEditedSummary(item.aiResponse.summary || '');
+    setIsEditing(true);
+  };
+
   const handleSave = async () => {
     if (item && item.aiResponse) {
       await updateHistoryItem(item.id, {
@@ -170,9 +178,16 @@ export default function RecordDetailScreen() {
         options={{
           title: '记录详情',
           headerRight: () => (
-            <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
-              <Ionicons name="trash-outline" size={22} color={Colors.error} />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              {item?.aiResponse && !isEditing && (
+                <TouchableOpacity onPress={handleEditStart} style={styles.headerButton}>
+                  <Ionicons name="pencil-outline" size={22} color={Colors.primary} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
+                <Ionicons name="trash-outline" size={22} color={Colors.error} />
+              </TouchableOpacity>
+            </View>
           ),
         }}
       />
@@ -241,14 +256,9 @@ export default function RecordDetailScreen() {
           {/* AI Analysis Result */}
           {item.aiResponse && (
             <View style={[styles.section, { backgroundColor: colors.surface }]}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>AI 分析结果</Text>
-                {!isEditing && (
-                  <TouchableOpacity onPress={() => setIsEditing(true)}>
-                    <Ionicons name="pencil-outline" size={18} color={Colors.primary} />
-                  </TouchableOpacity>
-                )}
-              </View>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>AI 分析结果</Text>
+          </View>
 
               {/* Route Type */}
               <View style={styles.infoRow}>
@@ -362,6 +372,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 100,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   headerButton: {
     padding: 8,

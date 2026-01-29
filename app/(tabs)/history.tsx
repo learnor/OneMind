@@ -86,6 +86,7 @@ interface HistoryItemProps {
   colorScheme: 'light' | 'dark';
   onPress: () => void;
   onDelete: () => void;
+  onSwipeStartOpen: () => void;
   onSwipeWillOpen: () => void;
   onSwipeOpen: () => void;
   onSwipeClose: () => void;
@@ -93,7 +94,7 @@ interface HistoryItemProps {
   isSwipeOpen: boolean;
 }
 
-function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwipeWillOpen, onSwipeOpen, onSwipeClose, onRegisterSwipeable }: HistoryItemProps) {
+function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwipeStartOpen, onSwipeWillOpen, onSwipeOpen, onSwipeClose, onRegisterSwipeable }: HistoryItemProps) {
   const colors = Colors[colorScheme];
   const routeType = item.aiResponse?.route_type;
   const statusInfo = getStatusInfo(item.processingStatus);
@@ -132,6 +133,7 @@ function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwip
       rightThreshold={20}
       friction={1}
       overshootRight={false}
+      onSwipeableOpenStartDrag={onSwipeStartOpen}
       onSwipeableWillOpen={onSwipeWillOpen}
       onSwipeableOpen={onSwipeOpen}
       onSwipeableClose={onSwipeClose}
@@ -260,10 +262,13 @@ export default function HistoryScreen() {
     router.push(`/record/${item.id}`);
   };
 
-  const handleSwipeWillOpen = (itemId: string) => {
+  const handleSwipeStartOpen = (itemId: string) => {
     if (openSwipeId && openSwipeId !== itemId) {
       swipeableRefs.current.get(openSwipeId)?.close();
     }
+  };
+
+  const handleSwipeWillOpen = (itemId: string) => {
     setOpenSwipeId(itemId);
   };
 
@@ -357,6 +362,7 @@ export default function HistoryScreen() {
             isSwipeOpen={openSwipeId === item.id}
             onPress={() => handleItemPress(item)}
             onDelete={() => handleDeleteItem(item)}
+            onSwipeStartOpen={() => handleSwipeStartOpen(item.id)}
             onSwipeWillOpen={() => handleSwipeWillOpen(item.id)}
             onSwipeOpen={() => handleSwipeOpen(item.id)}
             onSwipeClose={() => setOpenSwipeId(prev => (prev === item.id ? null : prev))}
