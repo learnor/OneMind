@@ -86,10 +86,11 @@ async function saveFinanceRecord(
   sessionId: string
 ): Promise<boolean> {
   try {
+    const amount = Number.isFinite(data.amount) ? data.amount : 0;
     const { error } = await supabase
       .from('finance_records')
       .insert({
-        amount: data.amount,
+        amount,
         category: data.category,
         description: data.description,
         emotion_tag: data.emotion_tag,

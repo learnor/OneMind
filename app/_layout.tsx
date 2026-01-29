@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -5,6 +6,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, useMemo } from 'react';
 import 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { Colors } from '@/constants/Colors';
 import AnimatedSplash from '@/components/AnimatedSplash';
@@ -57,11 +59,13 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <NavigationProvider>
-        <RootLayoutNav />
-      </NavigationProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <NavigationProvider>
+          <RootLayoutNav />
+        </NavigationProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 

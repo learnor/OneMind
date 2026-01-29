@@ -8,10 +8,8 @@ import {
   RefreshControl,
   Alert,
   Image,
-  Animated,
-  PanResponder,
-  Dimensions,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -25,8 +23,7 @@ import {
   type CaptureHistoryItem,
 } from '@/lib/historyStore';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const SWIPE_THRESHOLD = -80;
+
 
 // Get icon for route type
 function getRouteIcon(routeType?: string): keyof typeof Ionicons.glyphMap {
@@ -89,73 +86,47 @@ interface HistoryItemProps {
   colorScheme: 'light' | 'dark';
   onPress: () => void;
   onDelete: () => void;
+  onSwipeOpen: () => void;
+  onSwipeClose: () => void;
+  isSwipeOpen: boolean;
 }
 
-function HistoryItem({ item, colorScheme, onPress, onDelete }: HistoryItemProps) {
+function HistoryItem({ item, colorScheme, isSwipeOpen, onPress, onDelete, onSwipeOpen, onSwipeClose }: HistoryItemProps) {
   const colors = Colors[colorScheme];
   const routeType = item.aiResponse?.route_type;
   const statusInfo = getStatusInfo(item.processingStatus);
-  
-  const translateX = useRef(new Animated.Value(0)).current;
-  const isSwipedOpen = useRef(false);
+  const swipeableRef = useRef<Swipeable>(null);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 10;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dx < 0) {
-          translateX.setValue(Math.max(gestureState.dx, -100));
-        } else if (isSwipedOpen.current) {
-          translateX.setValue(Math.min(gestureState.dx - 80, 0));
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < SWIPE_THRESHOLD) {
-          Animated.spring(translateX, {
-            toValue: -80,
-            useNativeDriver: true,
-          }).start();
-          isSwipedOpen.current = true;
-        } else {
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-          isSwipedOpen.current = false;
-        }
-      },
-    })
-  ).current;
+  React.useEffect(() => {
+    if (!isSwipeOpen) {
+      swipeableRef.current?.close();
+    }
+  }, [isSwipeOpen]);
 
   const handlePress = () => {
-    if (isSwipedOpen.current) {
-      Animated.spring(translateX, {
-        toValue: 0,
-        useNativeDriver: true,
-      }).start();
-      isSwipedOpen.current = false;
-    } else {
-      onPress();
+    if (isSwipeOpen) {
+      onSwipeClose();
+      swipeableRef.current?.close();
+      return;
     }
+    onPress();
   };
 
   return (
-    <View style={styles.swipeContainer}>
-      {/* Delete button behind */}
-      <View style={styles.deleteButtonContainer}>
-        <TouchableOpacity style={styles.swipeDeleteButton} onPress={onDelete}>
-          <Ionicons name="trash-outline" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-      
-      {/* Main content */}
-      <Animated.View
-        style={[{ transform: [{ translateX }] }]}
-        {...panResponder.panHandlers}
-      >
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={() => (
+        <View style={styles.deleteButtonContainer}>
+          <TouchableOpacity style={styles.swipeDeleteButton} onPress={onDelete}>
+            <Ionicons name="trash-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
+      rightThreshold={40}
+      onSwipeableOpen={onSwipeOpen}
+      onSwipeableClose={onSwipeClose}
+    >
+      <View style={styles.swipeContainer}>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={handlePress}
@@ -221,7 +192,7 @@ function HistoryItem({ item, colorScheme, onPress, onDelete }: HistoryItemProps)
 
           {/* Right: Thumbnail for photos or chevron */}
           {item.type === 'photo' && item.uri ? (
-            <View style={styles.rightContainer}>
+            <View style={styles.rightContainer} pointerEvents="none">
               <Image source={{ uri: item.uri }} style={styles.thumbnail} />
               <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} style={styles.chevron} />
             </View>
@@ -229,8 +200,8 @@ function HistoryItem({ item, colorScheme, onPress, onDelete }: HistoryItemProps)
             <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
           )}
         </TouchableOpacity>
-      </Animated.View>
-    </View>
+      </View>
+    </Swipeable>
   );
 }
 
@@ -241,6 +212,7 @@ export default function HistoryScreen() {
 
   const [history, setHistory] = useState<CaptureHistoryItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
   // Load history when screen is focused
   useFocusEffect(
@@ -261,25 +233,17 @@ export default function HistoryScreen() {
   };
 
   const handleItemPress = (item: CaptureHistoryItem) => {
+    if (openSwipeId) {
+      setOpenSwipeId(null);
+      return;
+    }
     router.push(`/record/${item.id}`);
   };
 
-  const handleDeleteItem = (item: CaptureHistoryItem) => {
-    Alert.alert(
-      '删除记录',
-      '确定要删除这条记录吗？',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteHistoryItem(item.id);
-            setHistory(prev => prev.filter(h => h.id !== item.id));
-          },
-        },
-      ]
-    );
+  const handleDeleteItem = async (item: CaptureHistoryItem) => {
+    await deleteHistoryItem(item.id);
+    setHistory(prev => prev.filter(h => h.id !== item.id));
+    setOpenSwipeId(null);
   };
 
   const handleClearHistory = () => {
@@ -359,8 +323,11 @@ export default function HistoryScreen() {
           <HistoryItem
             item={item}
             colorScheme={colorScheme}
+            isSwipeOpen={openSwipeId === item.id}
             onPress={() => handleItemPress(item)}
             onDelete={() => handleDeleteItem(item)}
+            onSwipeOpen={() => setOpenSwipeId(item.id)}
+            onSwipeClose={() => setOpenSwipeId(null)}
           />
         )}
         contentContainerStyle={history.length === 0 ? styles.emptyList : styles.listContent}
@@ -373,6 +340,7 @@ export default function HistoryScreen() {
           />
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
+        onScrollBeginDrag={() => setOpenSwipeId(null)}
       />
 
       {/* Clear Button */}
@@ -397,23 +365,22 @@ const styles = StyleSheet.create({
   },
   swipeContainer: {
     position: 'relative',
+    overflow: 'hidden',
   },
   deleteButtonContainer: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
     width: 80,
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: Colors.error,
+    borderRadius: 12,
   },
   swipeDeleteButton: {
     width: 80,
     height: '100%',
-    backgroundColor: Colors.error,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 12,
   },
   rightContainer: {
     flexDirection: 'row',
