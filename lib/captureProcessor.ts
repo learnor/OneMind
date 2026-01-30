@@ -4,6 +4,7 @@ import {
   InventoryData,
   processImageInput,
   processVoiceInput,
+  processVoiceInputBatch,
   TodoData,
 } from './aiService';
 import { supabase } from './supabase';
@@ -21,6 +22,7 @@ export interface ProcessingResult {
   success: boolean;
   sessionId: string | null;
   aiResponse: AIRouteResponse | null;
+  aiResponses: AIRouteResponse[] | null;
   error: string | null;
 }
 
@@ -231,6 +233,7 @@ export async function processVoiceCapture(
         success: false,
         sessionId: null,
         aiResponse: null,
+        aiResponses: null,
         error: `上传失败: ${uploadResult.error}`,
       };
     }
@@ -244,30 +247,50 @@ export async function processVoiceCapture(
         success: false,
         sessionId: null,
         aiResponse: null,
+        aiResponses: null,
         error: '创建会话失败',
       };
     }
 
-    // Step 3: AI Processing (Whisper + GPT-4o)
+    // Step 3: AI Processing
     onProgress?.({ status: 'analyzing', message: 'AI 正在分析...', progress: 50 });
     
-    const aiResponse = await processVoiceInput(audioUri);
+    const aiResponses = await processVoiceInputBatch(audioUri);
+    const aiResponse = aiResponses[0] ?? null;
 
     // Step 4: Save to database
     onProgress?.({ status: 'saving', message: '正在保存结果...', progress: 80 });
-    
-    const saveSuccess = await saveToDatabase(aiResponse, sessionId);
-    
+
+    const saveResults = await Promise.all(
+      aiResponses.map(response => saveToDatabase(response, sessionId))
+    );
+    const savedCount = saveResults.filter(Boolean).length;
+    const saveSuccess = savedCount > 0;
+    const saveError = savedCount === aiResponses.length
+      ? null
+      : savedCount === 0
+        ? '保存失败'
+        : '部分记录保存失败';
+
     // Step 5: Update session status
-    await updateInputSession(sessionId, aiResponse, saveSuccess ? 'completed' : 'failed');
+    const sessionResponse = aiResponse
+      ? {
+          ...aiResponse,
+          summary: aiResponses.length > 1 ? `共识别 ${aiResponses.length} 条记录` : aiResponse.summary,
+          data: aiResponses.length > 1 ? ({ items: aiResponses } as any) : aiResponse.data,
+        }
+      : ({ route_type: 'unknown', confidence: 0, summary: '分析失败', data: null } as any);
+
+    await updateInputSession(sessionId, sessionResponse as any, saveSuccess ? 'completed' : 'failed');
 
     onProgress?.({ status: 'completed', message: '处理完成！', progress: 100 });
 
     return {
-      success: true,
+      success: saveSuccess,
       sessionId,
       aiResponse,
-      error: null,
+      aiResponses,
+      error: saveError,
     };
   } catch (error) {
     console.error('Voice processing error:', error);
@@ -275,6 +298,7 @@ export async function processVoiceCapture(
       success: false,
       sessionId: null,
       aiResponse: null,
+      aiResponses: null,
       error: error instanceof Error ? error.message : '处理失败',
     };
   }
@@ -299,6 +323,7 @@ export async function processPhotoCapture(
         success: false,
         sessionId: null,
         aiResponse: null,
+        aiResponses: null,
         error: '所有照片上传失败',
       };
     }
@@ -315,6 +340,7 @@ export async function processPhotoCapture(
         success: false,
         sessionId: null,
         aiResponse: null,
+        aiResponses: null,
         error: '创建会话失败',
       };
     }
@@ -338,6 +364,7 @@ export async function processPhotoCapture(
       success: true,
       sessionId,
       aiResponse,
+      aiResponses: [aiResponse],
       error: null,
     };
   } catch (error) {
@@ -346,6 +373,7 @@ export async function processPhotoCapture(
       success: false,
       sessionId: null,
       aiResponse: null,
+      aiResponses: null,
       error: error instanceof Error ? error.message : '处理失败',
     };
   }

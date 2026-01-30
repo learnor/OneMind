@@ -161,20 +161,34 @@ export default function HomeScreen() {
           (progress) => setProcessingProgress(progress)
         );
         
+        const responses = processingResult.aiResponses
+          ?? (processingResult.aiResponse ? [processingResult.aiResponse] : []);
+
         // Update history item with AI results
         await updateHistoryItem(historyItem.id, {
           processingStatus: processingResult.success ? 'completed' : 'failed',
-          aiResponse: processingResult.aiResponse || undefined,
+          aiResponse: responses[0] || undefined,
           sessionId: processingResult.sessionId || undefined,
         });
-        
-        if (processingResult.success && processingResult.aiResponse) {
-          const routeType = getRouteTypeDisplayName(processingResult.aiResponse.route_type);
-          Alert.alert(
-            'AI 分析完成',
-            `已识别为: ${routeType}\n\n${processingResult.aiResponse.summary}`,
-            [{ text: '好的' }]
+
+        if (processingResult.success && responses.length > 1) {
+          await Promise.all(
+            responses.slice(1).map((response) => addHistoryItem({
+              type: 'voice',
+              uri: result.uri,
+              duration: result.duration,
+              processingStatus: 'completed',
+              aiResponse: response,
+              sessionId: processingResult.sessionId || undefined,
+            }))
           );
+        }
+        
+        if (processingResult.success && responses.length > 0) {
+          const alertBody = responses.length > 1
+            ? `共识别 ${responses.length} 条记录\n\n${responses.map((r, index) => `${index + 1}. ${r.summary}`).join('\n')}`
+            : `已识别为: ${getRouteTypeDisplayName(responses[0].route_type)}\n\n${responses[0].summary}`;
+          Alert.alert('AI 分析完成', alertBody, [{ text: '好的' }]);
         } else if (processingResult.error) {
           Alert.alert('处理失败', processingResult.error);
         }

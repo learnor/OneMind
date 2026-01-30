@@ -17,6 +17,10 @@ export interface AIRouteResponse {
   data: FinanceData | TodoData | InventoryData | null;
 }
 
+export interface AIRouteBatchResponse {
+  items: AIRouteResponse[];
+}
+
 export interface FinanceData {
   amount: number;
   category: string;
@@ -601,6 +605,66 @@ export async function routeContent(content: string, maxRetries = 2): Promise<AIR
   };
 }
 
+export async function routeContentBatch(content: string, maxRetries = 1): Promise<AIRouteResponse[]> {
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const contentPreview = content.replace(/\s+/g, ' ').trim().slice(0, 120);
+
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const logPrefix = formatRouteLogPrefix(requestId, attempt);
+      console.log(`${logPrefix} Routing content batch:`, contentPreview);
+
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: attempt > 1 ? 0.1 : 0.2,
+          maxOutputTokens: 1600,
+        },
+      });
+
+      const prompt = attempt === 1
+        ? `用户输入内容：\n${content}\n\n如果包含多条独立记录，请拆分为多个对象并返回 JSON: { "items": [ ... ] }。如果只有一条，items 只包含一条。`
+        : `请重新分析以下内容，输出 JSON: { "items": [ ... ] }，每个 item 必须符合 route_type/summary/data 结构。\n\n用户输入内容：\n${content}`;
+
+      const result = await model.generateContent([
+        SYSTEM_PROMPT,
+        prompt,
+      ]);
+
+      const response = await result.response;
+      const resultText = response.text().trim();
+      console.log(`${logPrefix} Batch route result (${resultText.length} chars):`, resultText);
+
+      const cleanedText = resultText
+        .replace(/```json\s*/i, '')
+        .replace(/```/g, '')
+        .trim();
+
+      const parsed = JSON.parse(cleanedText) as AIRouteBatchResponse | AIRouteResponse;
+      const items = Array.isArray((parsed as AIRouteBatchResponse).items)
+        ? (parsed as AIRouteBatchResponse).items
+        : [parsed as AIRouteResponse];
+
+      const normalizedItems = items
+        .filter((item) => item && item.route_type)
+        .map((item) => normalizeRouteResponse(item));
+
+      if (normalizedItems.length > 0) {
+        return normalizedItems;
+      }
+    } catch (error) {
+      console.error(`${formatRouteLogPrefix(requestId, attempt)} Batch routing error:`, error);
+      if (attempt <= maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      }
+    }
+  }
+
+  const fallback = await routeContent(content);
+  return [fallback];
+}
+
 /**
  * Full processing pipeline for voice input with error handling
  */
@@ -641,6 +705,42 @@ export async function processVoiceInput(audioUri: string): Promise<AIRouteRespon
         : '语音处理失败，请重试',
       data: null,
     };
+  }
+}
+
+export async function processVoiceInputBatch(audioUri: string): Promise<AIRouteResponse[]> {
+  try {
+    console.log('Step 1: Transcribing audio...');
+    const transcription = await transcribeAudio(audioUri);
+
+    if (!transcription || transcription.trim().length === 0) {
+      return [{
+        route_type: 'unknown',
+        confidence: 0,
+        summary: '语音转录为空，请检查录音质量',
+        data: null,
+      }];
+    }
+
+    console.log('Transcription successful:', transcription.substring(0, 50) + '...');
+    console.log('Step 2: Routing content batch...');
+    const results = await routeContentBatch(transcription);
+
+    if (results.length === 1 && results[0].confidence < 0.7) {
+      results[0].summary += ` (原文: ${transcription.substring(0, 30)}${transcription.length > 30 ? '...' : ''})`;
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Voice batch processing error:', error);
+    return [{
+      route_type: 'unknown',
+      confidence: 0,
+      summary: error instanceof Error && error.message.includes('转录失败')
+        ? '语音转录失败，请重新录音'
+        : '语音处理失败，请重试',
+      data: null,
+    }];
   }
 }
 
