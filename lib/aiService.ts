@@ -396,6 +396,75 @@ function normalizeRouteResponse(response: AIRouteResponse): AIRouteResponse {
   return response;
 }
 
+function buildSummaryFromText(content: string) {
+  const cleaned = content.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '内容为空';
+  return cleaned.length > 40 ? `${cleaned.slice(0, 40)}...` : cleaned;
+}
+
+function inferRouteFromText(content: string): AIRouteResponse | null {
+  const cleaned = content.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return null;
+
+  const financeKeywords = ['花', '花费', '付款', '支付', '消费', '买', '购买', '账单', '收据', '费用', '¥', '元'];
+  const todoKeywords = ['要做', '需要', '记得', '提醒', '任务', '计划', '安排', '待办'];
+  const inventoryKeywords = ['库存', '剩余', '还有', '补充', '用完', '存入', '放入', '放在', '冰箱', '冷冻', '冷藏'];
+
+  const hasFinance = financeKeywords.some((keyword) => cleaned.includes(keyword));
+  const hasTodo = todoKeywords.some((keyword) => cleaned.includes(keyword));
+  const hasInventory = inventoryKeywords.some((keyword) => cleaned.includes(keyword));
+
+  const amountMatch = cleaned.match(/(\d+(?:\.\d+)?)(?:\s*(元|块|¥))?/);
+  const quantityMatch = cleaned.match(/(\d+(?:\.\d+)?)(?:\s*(个|瓶|袋|盒|斤|克|包|箱|件|支|片))?/);
+
+  if (hasInventory && !hasFinance) {
+    const quantity = quantityMatch ? Number(quantityMatch[1]) : 1;
+    const unit = quantityMatch?.[2] || '个';
+    return {
+      route_type: 'inventory',
+      confidence: 0.4,
+      summary: buildSummaryFromText(cleaned),
+      data: {
+        name: buildSummaryFromText(cleaned),
+        category: '其他',
+        storage_zone: cleaned.includes('冷冻') ? 'Freezer' : cleaned.includes('冰箱') || cleaned.includes('冷藏') ? 'Fridge' : 'Other',
+        quantity: Number.isFinite(quantity) ? quantity : 1,
+        unit,
+      },
+    };
+  }
+
+  if (hasFinance && amountMatch) {
+    const amount = Number(amountMatch[1]);
+    return {
+      route_type: 'finance',
+      confidence: 0.4,
+      summary: buildSummaryFromText(cleaned),
+      data: {
+        amount: Number.isFinite(amount) ? amount : 0,
+        category: '其他',
+        description: buildSummaryFromText(cleaned),
+      },
+    };
+  }
+
+  if (hasTodo) {
+    return {
+      route_type: 'todo',
+      confidence: 0.4,
+      summary: buildSummaryFromText(cleaned),
+      data: {
+        title: buildSummaryFromText(cleaned),
+        description: undefined,
+        type: 'Todo',
+        priority: 2,
+      },
+    };
+  }
+
+  return null;
+}
+
 function formatRouteLogPrefix(requestId: string, attempt: number) {
   return `[route:${requestId}#${attempt}]`;
 }
@@ -496,6 +565,14 @@ export async function routeContent(content: string, maxRetries = 2): Promise<AIR
       const normalized = normalizeRouteResponse(parsed);
       if (normalized !== parsed) {
         console.warn(`${logPrefix} Normalized AI response fields`);
+      }
+
+      if (normalized.route_type === 'unknown' || normalized.confidence < 0.4) {
+        const heuristic = inferRouteFromText(content);
+        if (heuristic) {
+          console.warn(`${logPrefix} Heuristic routing applied`);
+          return normalizeRouteResponse(heuristic);
+        }
       }
 
       return normalized;
