@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   Switch,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -37,6 +38,7 @@ import {
   updateFinanceRecord,
   getActions,
   updateActionStatus,
+  updateAction,
   deleteAction,
   getInventoryItems,
   updateInventoryQuantity,
@@ -429,11 +431,18 @@ interface TodoSectionProps {
   colorScheme: 'light' | 'dark';
   onToggle: (id: string, status: 'pending' | 'completed') => void;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<Action>) => void;
 }
 
-function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionProps) {
+function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: TodoSectionProps) {
   const colors = Colors[colorScheme];
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'pending' | 'completed' | 'high'>('all');
+  const [editingAction, setEditingAction] = useState<Action | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editPriority, setEditPriority] = useState<1 | 2 | 3>(2);
+  const [editType, setEditType] = useState<Action['type']>('Todo');
+  const [editDueDate, setEditDueDate] = useState('');
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
@@ -456,6 +465,34 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionPr
       { text: '取消', style: 'cancel' },
       { text: '删除', style: 'destructive', onPress: () => onDelete(action.id) },
     ]);
+  };
+
+  const handleEditOpen = (action: Action) => {
+    setEditingAction(action);
+    setEditTitle(action.title || '');
+    setEditDescription(action.description || '');
+    setEditPriority(action.priority || 2);
+    setEditType(action.type || 'Todo');
+    setEditDueDate(action.due_date || '');
+  };
+
+  const handleEditSave = () => {
+    if (!editingAction) return;
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle) {
+      Alert.alert('标题不能为空', '请输入任务标题');
+      return;
+    }
+
+    onUpdate(editingAction.id, {
+      title: trimmedTitle,
+      description: editDescription.trim() || null,
+      priority: editPriority,
+      type: editType,
+      due_date: editDueDate.trim() || null,
+    });
+
+    setEditingAction(null);
   };
 
   if (actions.length === 0) {
@@ -482,8 +519,21 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionPr
         ? completedActions.length
         : highPriorityActions.length;
 
+  const completionRate = actions.length > 0
+    ? Math.round((completedActions.length / actions.length) * 100)
+    : 0;
+
   return (
     <View style={styles.sectionContent}>
+      <View style={[styles.todoSummaryCard, { backgroundColor: colors.surface }]}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>完成率</Text>
+        <Text style={[styles.todoSummaryValue, { color: Colors.primary }]}>{completionRate}%</Text>
+        <View style={[styles.todoProgressTrack, { backgroundColor: colors.border }]}>
+          <View style={[styles.todoProgressFill, { width: `${completionRate}%`, backgroundColor: Colors.primary }]} />
+        </View>
+        <Text style={[styles.todoSummaryMeta, { color: colors.textSecondary }]}>完成 {completedActions.length} / 共 {actions.length}</Text>
+      </View>
+
       {/* Filter */}
       <View style={[styles.todoFilterRow, { backgroundColor: colors.surface }]}>
         <TouchableOpacity
@@ -540,34 +590,131 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionPr
         </View>
       )}
 
+      <Modal
+        visible={!!editingAction}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingAction(null)}
+      >
+        <Pressable style={styles.todoEditOverlay} onPress={() => setEditingAction(null)}>
+          <Pressable
+            style={[styles.todoEditCard, { backgroundColor: colors.surface }]}
+            onPress={() => {}}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.modalTitle, { color: colors.text }]}>编辑待办</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="标题"
+              placeholderTextColor={colors.textSecondary}
+              value={editTitle}
+              onChangeText={setEditTitle}
+            />
+            <TextInput
+              style={[styles.modalInput, styles.modalTextarea, { color: colors.text, borderColor: colors.border }]}
+              placeholder="描述（可选）"
+              placeholderTextColor={colors.textSecondary}
+              value={editDescription}
+              onChangeText={setEditDescription}
+              multiline
+            />
+            <View style={styles.todoEditRow}>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>优先级</Text>
+              <View style={styles.todoEditChips}>
+                {[1, 2, 3].map((level) => {
+                  const isSelected = editPriority === level;
+                  const color = getPriorityColor(level);
+                  return (
+                    <TouchableOpacity
+                      key={level}
+                      style={[styles.todoEditChip, { backgroundColor: isSelected ? color : colors.border }]}
+                      onPress={() => setEditPriority(level as 1 | 2 | 3)}
+                    >
+                      <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>P{level}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={styles.todoEditRow}>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>类型</Text>
+              <View style={styles.todoEditChips}>
+                {['Todo', 'Reminder', 'Inspiration'].map((type) => {
+                  const isSelected = editType === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[styles.todoEditChip, { backgroundColor: isSelected ? Colors.primary : colors.border }]}
+                      onPress={() => setEditType(type as Action['type'])}
+                    >
+                      <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="截止日期 (YYYY-MM-DD)"
+              placeholderTextColor={colors.textSecondary}
+              value={editDueDate}
+              onChangeText={setEditDueDate}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.border }]}
+                onPress={() => setEditingAction(null)}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.text }]}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: Colors.primary }]}
+                onPress={handleEditSave}
+              >
+                <Text style={[styles.modalButtonText, { color: '#fff' }]}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+
       {/* Pending */}
       {showPending && visiblePending.length > 0 && (
         <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>待完成 ({visiblePending.length})</Text>
           {visiblePending.map((action) => (
-            <TouchableOpacity
-              key={action.id}
-              style={styles.todoItem}
-              onPress={() => onToggle(action.id, 'completed')}
-              onLongPress={() => handleDelete(action)}
-            >
-              <View style={styles.todoLeft}>
+            <View key={action.id} style={styles.todoItemRow}>
+              <Pressable
+                style={styles.todoLeft}
+                onPress={() => onToggle(action.id, 'completed')}
+                onLongPress={() => handleDelete(action)}
+              >
                 <View style={[styles.checkbox, { borderColor: colors.border }]}>
                   <View style={styles.checkboxInner} />
                 </View>
                 <View style={styles.todoContent}>
                   <Text style={[styles.todoTitle, { color: colors.text }]}>{action.title}</Text>
                   <View style={styles.todoMeta}>
-                    <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(action.priority) + '20' }]}>
+                    <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(action.priority) + '20' }]}
+                    >
                       <Text style={[styles.priorityText, { color: getPriorityColor(action.priority) }]}>
                         {getPriorityLabel(action.priority)}优先
                       </Text>
                     </View>
                     <Text style={[styles.todoType, { color: colors.textSecondary }]}>{action.type}</Text>
+                    {action.due_date && (
+                      <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>截止 {action.due_date}</Text>
+                    )}
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
+              </Pressable>
+              <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
+                <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           ))}
         </View>
       )}
@@ -577,21 +724,24 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionPr
         <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>已完成 ({completedActions.length})</Text>
           {completedActions.map((action) => (
-            <TouchableOpacity
-              key={action.id}
-              style={[styles.todoItem, styles.todoCompleted]}
-              onPress={() => onToggle(action.id, 'pending')}
-              onLongPress={() => handleDelete(action)}
-            >
-              <View style={styles.todoLeft}>
-                <View style={[styles.checkbox, styles.checkboxChecked, { borderColor: Colors.success }]}>
+            <View key={action.id} style={styles.todoItemRow}>
+              <Pressable
+                style={[styles.todoLeft, styles.todoCompleted]}
+                onPress={() => onToggle(action.id, 'pending')}
+                onLongPress={() => handleDelete(action)}
+              >
+                <View style={[styles.checkbox, styles.checkboxChecked, { borderColor: Colors.success }]}
+                >
                   <Ionicons name="checkmark" size={14} color={Colors.success} />
                 </View>
                 <Text style={[styles.todoTitle, styles.todoTitleCompleted, { color: colors.textSecondary }]}>
                   {action.title}
                 </Text>
-              </View>
-            </TouchableOpacity>
+              </Pressable>
+              <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
+                <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           ))}
         </View>
       )}
@@ -1244,6 +1394,11 @@ export default function DataScreen() {
     setActions(prev => prev.filter(a => a.id !== id));
   };
 
+  const handleUpdateAction = async (id: string, updates: Partial<Action>) => {
+    await updateAction(id, updates);
+    setActions(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+  };
+
   const handleUpdateInventoryQty = async (id: string, quantity: number) => {
     await updateInventoryQuantity(id, quantity);
     setInventoryItems(prev => prev.map(i => i.id === id ? { ...i, quantity } : i));
@@ -1299,6 +1454,7 @@ export default function DataScreen() {
                 colorScheme={colorScheme}
                 onToggle={handleToggleAction}
                 onDelete={handleDeleteAction}
+                onUpdate={handleUpdateAction}
               />
             )}
             {activeTab === 'inventory' && (
@@ -1488,6 +1644,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E5E7EB',
   },
+  todoItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
+  },
   todoCompleted: {
     opacity: 0.6,
   },
@@ -1536,6 +1700,37 @@ const styles = StyleSheet.create({
   },
   todoType: {
     fontSize: 12,
+  },
+  todoDueDate: {
+    fontSize: 12,
+  },
+  todoEditButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  todoSummaryCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  todoSummaryValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  todoSummaryMeta: {
+    fontSize: 12,
+    marginTop: 8,
+  },
+  todoProgressTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+    marginTop: 10,
+  },
+  todoProgressFill: {
+    height: '100%',
+    borderRadius: 999,
   },
   todoFilterRow: {
     borderRadius: 12,
@@ -1751,6 +1946,41 @@ const styles = StyleSheet.create({
   },
   modalButtonText: {
     fontSize: 14,
+    fontWeight: '600',
+  },
+  todoEditOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    zIndex: 20,
+  },
+  todoEditCard: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 20,
+  },
+  todoEditRow: {
+    marginBottom: 12,
+  },
+  todoEditChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  todoEditChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  todoEditChipText: {
+    fontSize: 12,
     fontWeight: '600',
   },
   moreText: {

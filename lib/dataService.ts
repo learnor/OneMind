@@ -163,6 +163,22 @@ export async function updateActionStatus(
   }
 }
 
+export async function updateAction(
+  id: string,
+  updates: Partial<Pick<Action, 'title' | 'description' | 'type' | 'priority' | 'due_date' | 'status'>>
+): Promise<{ error: Error | null }> {
+  try {
+    const { error } = await supabase
+      .from('actions')
+      .update(updates as any)
+      .eq('id', id);
+
+    return { error };
+  } catch (err) {
+    return { error: err as Error };
+  }
+}
+
 export async function deleteAction(id: string): Promise<{ error: Error | null }> {
   try {
     const { error } = await supabase

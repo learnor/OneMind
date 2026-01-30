@@ -89,8 +89,10 @@ export interface Action {
   id: string;
   user_id: string;
   title: string;
+  description: string | null;
   type: ActionType;
   priority: 1 | 2 | 3; // 1: Low, 2: Medium, 3: High
+  due_date: string | null;
   trigger_type: TriggerType | null;
   trigger_value: Record<string, unknown> | null; // JSONB for time/location
   status: ActionStatus;
