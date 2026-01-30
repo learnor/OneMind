@@ -348,15 +348,70 @@ function extractRouteFromText(text: string): AIRouteResponse | null {
   };
 }
 
+function normalizeRouteResponse(response: AIRouteResponse): AIRouteResponse {
+  if (response.route_type === 'finance') {
+    const data = response.data as FinanceData | null;
+    return {
+      ...response,
+      data: {
+        amount: data?.amount ?? 0,
+        category: data?.category || '其他',
+        description: data?.description || response.summary,
+        emotion_tag: data?.emotion_tag,
+        is_essential: data?.is_essential,
+        record_date: data?.record_date,
+      },
+    };
+  }
+
+  if (response.route_type === 'todo') {
+    const data = response.data as TodoData | null;
+    return {
+      ...response,
+      data: {
+        title: data?.title || response.summary || '未命名任务',
+        description: data?.description,
+        type: data?.type || 'Todo',
+        priority: data?.priority || 2,
+        due_date: data?.due_date,
+      },
+    };
+  }
+
+  if (response.route_type === 'inventory') {
+    const data = response.data as InventoryData | null;
+    return {
+      ...response,
+      data: {
+        name: data?.name || response.summary || '未命名物品',
+        category: data?.category || '其他',
+        storage_zone: data?.storage_zone || 'Other',
+        quantity: Number.isFinite(data?.quantity) ? (data?.quantity as number) : 1,
+        unit: data?.unit || '个',
+        expiry_date: data?.expiry_date,
+      },
+    };
+  }
+
+  return response;
+}
+
+function formatRouteLogPrefix(requestId: string, attempt: number) {
+  return `[route:${requestId}#${attempt}]`;
+}
+
 /**
  * Route content to appropriate category using Gemini with retry mechanism
  */
 export async function routeContent(content: string, maxRetries = 2): Promise<AIRouteResponse> {
   let lastError: Error | null = null;
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const contentPreview = content.replace(/\s+/g, ' ').trim().slice(0, 100);
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
-      console.log(`Routing content with Gemini (attempt ${attempt}):`, content.substring(0, 100) + '...');
+      const logPrefix = formatRouteLogPrefix(requestId, attempt);
+      console.log(`${logPrefix} Routing content:`, contentPreview);
 
       const model = genAI.getGenerativeModel({ 
         model: 'gemini-2.5-flash',
@@ -379,12 +434,16 @@ export async function routeContent(content: string, maxRetries = 2): Promise<AIR
       const response = await result.response;
       const resultText = response.text().trim();
       
-      console.log('Route result:', resultText);
+      console.log(`${logPrefix} Route result (${resultText.length} chars):`, resultText);
 
       const cleanedText = resultText
         .replace(/```json\s*/i, '')
         .replace(/```/g, '')
         .trim();
+
+      if (!cleanedText.endsWith('}')) {
+        console.warn(`${logPrefix} Response may be truncated`);
+      }
 
       // Better JSON parsing with fallback
       let parsed: AIRouteResponse;
@@ -434,22 +493,27 @@ export async function routeContent(content: string, maxRetries = 2): Promise<AIR
         parsed.confidence = 0.5; // Default confidence
       }
 
-      return parsed;
+      const normalized = normalizeRouteResponse(parsed);
+      if (normalized !== parsed) {
+        console.warn(`${logPrefix} Normalized AI response fields`);
+      }
+
+      return normalized;
 
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Routing error (attempt ${attempt}):`, lastError);
+      console.error(`${formatRouteLogPrefix(requestId, attempt)} Routing error:`, lastError);
       
       // If this is not the last attempt, wait a bit before retrying
       if (attempt <= maxRetries) {
-        console.log(`Retrying in ${attempt * 1000}ms...`);
+        console.log(`${formatRouteLogPrefix(requestId, attempt)} Retrying in ${attempt * 1000}ms...`);
         await new Promise(resolve => setTimeout(resolve, attempt * 1000));
       }
     }
   }
 
   // All attempts failed
-  console.error('All routing attempts failed:', lastError);
+  console.error(`${formatRouteLogPrefix(requestId, maxRetries + 1)} All routing attempts failed:`, lastError);
   return {
     route_type: 'unknown',
     confidence: 0,

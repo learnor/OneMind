@@ -120,13 +120,18 @@ async function saveTodoRecord(
   sessionId: string
 ): Promise<boolean> {
   try {
+    const title = data.title?.trim() || '未命名任务';
+    const type = data.type || 'Todo';
+    const priority = data.priority || 2;
+    const description = data.description || null;
+
     const { error } = await supabase
       .from('actions')
       .insert({
-        title: data.title,
-        description: data.description,
-        type: data.type,
-        priority: data.priority,
+        title,
+        description,
+        type,
+        priority,
         due_date: data.due_date,
         status: 'pending',
         session_id: sessionId,
@@ -153,14 +158,20 @@ async function saveInventoryRecord(
   sessionId: string
 ): Promise<boolean> {
   try {
+    const name = data.name?.trim() || '未命名物品';
+    const category = data.category || '其他';
+    const storage_zone = data.storage_zone || 'Other';
+    const quantity = Number.isFinite(data.quantity) ? data.quantity : 1;
+    const unit = data.unit || '个';
+
     const { error } = await supabase
       .from('inventory_items')
       .insert({
-        name: data.name,
-        category: data.category,
-        storage_zone: data.storage_zone,
-        quantity: data.quantity,
-        unit: data.unit,
+        name,
+        category,
+        storage_zone,
+        quantity,
+        unit,
         expiry_date: data.expiry_date,
         session_id: sessionId,
       } as any);

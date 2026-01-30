@@ -222,6 +222,7 @@ interface TodoSectionProps {
 
 function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionProps) {
   const colors = Colors[colorScheme];
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'pending' | 'completed' | 'high'>('all');
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
@@ -257,14 +258,82 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete }: TodoSectionPr
 
   const pendingActions = actions.filter(a => a.status === 'pending');
   const completedActions = actions.filter(a => a.status === 'completed');
+  const highPriorityActions = pendingActions.filter(action => action.priority === 3);
+
+  const visiblePending = selectedFilter === 'high' ? highPriorityActions : pendingActions;
+  const showPending = selectedFilter === 'all' || selectedFilter === 'pending' || selectedFilter === 'high';
+  const showCompleted = selectedFilter === 'all' || selectedFilter === 'completed';
+  const filteredCount = selectedFilter === 'all'
+    ? actions.length
+    : selectedFilter === 'pending'
+      ? pendingActions.length
+      : selectedFilter === 'completed'
+        ? completedActions.length
+        : highPriorityActions.length;
 
   return (
     <View style={styles.sectionContent}>
+      {/* Filter */}
+      <View style={[styles.todoFilterRow, { backgroundColor: colors.surface }]}>
+        <TouchableOpacity
+          style={[
+            styles.todoFilterChip,
+            { backgroundColor: selectedFilter === 'all' ? Colors.primary : colors.border },
+          ]}
+          onPress={() => setSelectedFilter('all')}
+        >
+          <Text style={[styles.todoFilterText, { color: selectedFilter === 'all' ? '#fff' : colors.text }]}>全部</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.todoFilterChip,
+            { backgroundColor: selectedFilter === 'pending' ? Colors.primary : colors.border },
+          ]}
+          onPress={() => setSelectedFilter('pending')}
+        >
+          <Text style={[styles.todoFilterText, { color: selectedFilter === 'pending' ? '#fff' : colors.text }]}>待完成 {pendingActions.length}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.todoFilterChip,
+            { backgroundColor: selectedFilter === 'completed' ? Colors.primary : colors.border },
+          ]}
+          onPress={() => setSelectedFilter('completed')}
+        >
+          <Text style={[styles.todoFilterText, { color: selectedFilter === 'completed' ? '#fff' : colors.text }]}>已完成 {completedActions.length}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.todoFilterChip,
+            { backgroundColor: selectedFilter === 'high' ? Colors.error : colors.border },
+          ]}
+          onPress={() => setSelectedFilter('high')}
+        >
+          <Ionicons name="alert-circle" size={14} color={selectedFilter === 'high' ? '#fff' : Colors.error} />
+          <Text
+            style={[
+              styles.todoFilterText,
+              { color: selectedFilter === 'high' ? '#fff' : colors.text },
+              { marginLeft: 4 },
+            ]}
+          >
+            高优先 {highPriorityActions.length}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {filteredCount === 0 && (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="checkbox-outline" size={48} color={colors.textSecondary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>暂无符合条件的任务</Text>
+        </View>
+      )}
+
       {/* Pending */}
-      {pendingActions.length > 0 && (
+      {showPending && visiblePending.length > 0 && (
         <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>待完成 ({pendingActions.length})</Text>
-          {pendingActions.map((action) => (
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>待完成 ({visiblePending.length})</Text>
+          {visiblePending.map((action) => (
             <TouchableOpacity
               key={action.id}
               style={styles.todoItem}
@@ -421,6 +490,7 @@ function InventorySection({ items, colorScheme, onUpdateQuantity, onDelete }: In
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [showQuantityModal, setShowQuantityModal] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null); // 位置筛选
+  const [selectedExpiry, setSelectedExpiry] = useState<ExpiryLevel | 'all'>('all');
 
   const getZoneIcon = (zone: string): keyof typeof Ionicons.glyphMap => {
     switch (zone) {
@@ -515,12 +585,16 @@ function InventorySection({ items, colorScheme, onUpdateQuantity, onDelete }: In
   }
 
   // Filter by selected zone
-  const filteredItems = selectedZone 
+  const zoneFilteredItems = selectedZone 
     ? items.filter(item => item.storage_zone === selectedZone)
     : items;
 
-  // Count items by expiry level (only for filtered items)
-  const expiryCounts = filteredItems.reduce((acc, item) => {
+  const expiryFilteredItems = selectedExpiry === 'all'
+    ? zoneFilteredItems
+    : zoneFilteredItems.filter(item => getExpiryInfo(item.expiry_date).level === selectedExpiry);
+
+  // Count items by expiry level (only for zone filtered items)
+  const expiryCounts = zoneFilteredItems.reduce((acc, item) => {
     const info = getExpiryInfo(item.expiry_date);
     acc[info.level] = (acc[info.level] || 0) + 1;
     return acc;
@@ -530,12 +604,27 @@ function InventorySection({ items, colorScheme, onUpdateQuantity, onDelete }: In
   const allZones = Array.from(new Set(items.map(item => item.storage_zone || 'Other')));
   
   // Group by storage zone
-  const grouped = filteredItems.reduce((acc, item) => {
+  const grouped = expiryFilteredItems.reduce((acc, item) => {
     const zone = item.storage_zone || 'Other';
     if (!acc[zone]) acc[zone] = [];
     acc[zone].push(item);
     return acc;
   }, {} as Record<string, InventoryItem[]>);
+
+  const expiryFilterLabels: Record<ExpiryLevel, string> = {
+    expired: '已过期',
+    critical: '1天内',
+    warning: '3天内',
+    caution: '7天内',
+    safe: '安全',
+    none: '无保质期',
+  };
+
+  const emptyMessage = selectedExpiry !== 'all'
+    ? `暂无${expiryFilterLabels[selectedExpiry]}物品`
+    : selectedZone
+      ? '该位置暂无物品'
+      : '暂无库存物品';
 
   return (
     <View style={styles.sectionContent}>
@@ -594,7 +683,7 @@ function InventorySection({ items, colorScheme, onUpdateQuantity, onDelete }: In
       )}
 
       {/* Expiry Summary */}
-      {filteredItems.length > 0 && (
+      {zoneFilteredItems.length > 0 && (
         <View style={[styles.expirySummary, { backgroundColor: colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>保质期概览</Text>
           <View style={styles.expiryBadges}>
@@ -642,11 +731,57 @@ function InventorySection({ items, colorScheme, onUpdateQuantity, onDelete }: In
         </View>
       )}
 
+      {zoneFilteredItems.length > 0 && (
+        <View style={[styles.expiryFilterRow, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>保质期筛选</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.expiryFilterChips}
+          >
+            <TouchableOpacity
+              style={[
+                styles.expiryFilterChip,
+                { backgroundColor: selectedExpiry === 'all' ? Colors.primary : colors.border },
+              ]}
+              onPress={() => setSelectedExpiry('all')}
+            >
+              <Text style={[styles.expiryFilterText, { color: selectedExpiry === 'all' ? '#fff' : colors.text }]}>全部 {zoneFilteredItems.length}</Text>
+            </TouchableOpacity>
+            {([
+              { key: 'expired', label: '已过期', color: '#DC2626', bgColor: '#FEE2E2' },
+              { key: 'critical', label: '1天内', color: '#B91C1C', bgColor: '#FEE2E2' },
+              { key: 'warning', label: '3天内', color: '#EA580C', bgColor: '#FFEDD5' },
+              { key: 'caution', label: '7天内', color: '#CA8A04', bgColor: '#FEF9C3' },
+              { key: 'safe', label: '安全', color: '#16A34A', bgColor: '#DCFCE7' },
+            ] as const).map(({ key, label, color, bgColor }) => {
+              const count = expiryCounts[key] || 0;
+              if (count === 0) return null;
+              const isSelected = selectedExpiry === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[
+                    styles.expiryFilterChip,
+                    { backgroundColor: isSelected ? color : bgColor },
+                  ]}
+                  onPress={() => setSelectedExpiry(isSelected ? 'all' : key)}
+                >
+                  <Text style={[styles.expiryFilterText, { color: isSelected ? '#fff' : color }]}>
+                    {label} {count}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       {Object.keys(grouped).length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={48} color={colors.textSecondary} />
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            {selectedZone ? `该位置暂无物品` : '暂无库存物品'}
+            {emptyMessage}
           </Text>
         </View>
       ) : (
@@ -1152,6 +1287,25 @@ const styles = StyleSheet.create({
   todoType: {
     fontSize: 12,
   },
+  todoFilterRow: {
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  todoFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  todoFilterText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   zoneHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1213,6 +1367,25 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
+  },
+  expiryFilterRow: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  expiryFilterChips: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 8,
+  },
+  expiryFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  expiryFilterText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   expiryBadges: {
     flexDirection: 'row',
