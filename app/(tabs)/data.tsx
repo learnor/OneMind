@@ -162,6 +162,8 @@ function FinanceSection({
   };
 
   const categories = Array.from(new Set(records.map(record => record.category || '未分类')));
+  const defaultCategories = ['餐饮', '交通', '购物', '娱乐', '生活', '医疗', '教育', '其他'];
+  const categoryOptions = Array.from(new Set([...defaultCategories, ...categories]));
 
   const filteredRecords = records.filter(record => {
     const category = record.category || '未分类';
@@ -364,6 +366,29 @@ function FinanceSection({
               value={editCategory}
               onChangeText={setEditCategory}
             />
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.modalChipRow}
+            >
+              {categoryOptions.map((category) => {
+                const isSelected = editCategory.trim() === category;
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    style={[
+                      styles.modalChip,
+                      { backgroundColor: isSelected ? Colors.primary : colors.border },
+                    ]}
+                    onPress={() => setEditCategory(category)}
+                  >
+                    <Text style={[styles.modalChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                      {category}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             <TextInput
               style={[styles.modalInput, styles.modalTextarea, { color: colors.text, borderColor: colors.border }]}
               placeholder="描述（可选）"
@@ -1689,6 +1714,20 @@ const styles = StyleSheet.create({
   modalTextarea: {
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  modalChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 12,
+  },
+  modalChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  modalChipText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   modalSwitchRow: {
     flexDirection: 'row',
