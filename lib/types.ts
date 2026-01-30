@@ -62,10 +62,12 @@ export interface FinanceRecord {
   user_id: string;
   amount: number;
   category: string | null;
+  description: string | null;
   emotion_tag: string | null; // Mood when spending
   is_essential: boolean | null;
   location_id: string | null;
   session_id: string | null;
+  record_date: string | null;
   created_at: string;
 }
 

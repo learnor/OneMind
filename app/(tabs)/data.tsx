@@ -8,6 +8,9 @@ import {
   RefreshControl,
   Alert,
   FlatList,
+  Modal,
+  TextInput,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -31,6 +34,7 @@ import {
   getFinanceRecords,
   getFinanceStats,
   deleteFinanceRecord,
+  updateFinanceRecord,
   getActions,
   updateActionStatus,
   deleteAction,
@@ -99,6 +103,7 @@ interface FinanceSectionProps {
   weeklyStats: WeeklyStats;
   colorScheme: 'light' | 'dark';
   onDelete: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<FinanceRecord>) => void;
 }
 
 function FinanceSection({ 
@@ -108,9 +113,18 @@ function FinanceSection({
   categoryData, 
   weeklyStats,
   colorScheme, 
-  onDelete 
+  onDelete,
+  onUpdate
 }: FinanceSectionProps) {
   const colors = Colors[colorScheme];
+
+  const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
+  const [selectedEssential, setSelectedEssential] = useState<'all' | 'essential' | 'non-essential'>('all');
+  const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editEssential, setEditEssential] = useState(false);
 
   const formatAmount = (amount: number) => `¥${amount.toFixed(2)}`;
 
@@ -120,6 +134,45 @@ function FinanceSection({
       { text: '删除', style: 'destructive', onPress: () => onDelete(record.id) },
     ]);
   };
+
+  const handleEditOpen = (record: FinanceRecord) => {
+    setEditingRecord(record);
+    setEditAmount(record.amount?.toString() || '');
+    setEditCategory(record.category || '');
+    setEditDescription(record.description || '');
+    setEditEssential(Boolean(record.is_essential));
+  };
+
+  const handleEditSave = () => {
+    if (!editingRecord) return;
+    const amount = Number(editAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('金额错误', '请输入有效的金额');
+      return;
+    }
+
+    onUpdate(editingRecord.id, {
+      amount,
+      category: editCategory.trim() || '未分类',
+      description: editDescription.trim() || null,
+      is_essential: editEssential,
+    });
+
+    setEditingRecord(null);
+  };
+
+  const categories = Array.from(new Set(records.map(record => record.category || '未分类')));
+
+  const filteredRecords = records.filter(record => {
+    const category = record.category || '未分类';
+    const matchesCategory = selectedCategory === 'all' || category === selectedCategory;
+    const matchesEssential = selectedEssential === 'all'
+      ? true
+      : selectedEssential === 'essential'
+        ? record.is_essential === true
+        : record.is_essential === false || record.is_essential === null;
+    return matchesCategory && matchesEssential;
+  });
 
   if (records.length === 0) {
     return (
@@ -167,15 +220,88 @@ function FinanceSection({
         </View>
       )}
 
-      {/* Records List */}
-      <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>消费明细</Text>
-        {records.slice(0, 10).map((record) => (
+      {/* Finance Filters */}
+      <View style={[styles.financeFilterRow, { backgroundColor: colors.surface }]}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>筛选</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.financeFilterChips}
+        >
           <TouchableOpacity
-            key={record.id}
-            style={styles.recordItem}
-            onLongPress={() => handleDelete(record)}
+            style={[
+              styles.financeFilterChip,
+              { backgroundColor: selectedEssential === 'all' ? Colors.primary : colors.border },
+            ]}
+            onPress={() => setSelectedEssential('all')}
           >
+            <Text style={[styles.financeFilterText, { color: selectedEssential === 'all' ? '#fff' : colors.text }]}>全部</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.financeFilterChip,
+              { backgroundColor: selectedEssential === 'essential' ? Colors.accent : colors.border },
+            ]}
+            onPress={() => setSelectedEssential('essential')}
+          >
+            <Text style={[styles.financeFilterText, { color: selectedEssential === 'essential' ? '#fff' : colors.text }]}>必要</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.financeFilterChip,
+              { backgroundColor: selectedEssential === 'non-essential' ? Colors.accentWarm : colors.border },
+            ]}
+            onPress={() => setSelectedEssential('non-essential')}
+          >
+            <Text style={[styles.financeFilterText, { color: selectedEssential === 'non-essential' ? '#fff' : colors.text }]}>非必要</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.financeFilterChip,
+              { backgroundColor: selectedCategory === 'all' ? Colors.primary : colors.border },
+            ]}
+            onPress={() => setSelectedCategory('all')}
+          >
+            <Text style={[styles.financeFilterText, { color: selectedCategory === 'all' ? '#fff' : colors.text }]}>全部分类</Text>
+          </TouchableOpacity>
+          {categories.map((category) => {
+            const isSelected = selectedCategory === category;
+            return (
+              <TouchableOpacity
+                key={category}
+                style={[
+                  styles.financeFilterChip,
+                  { backgroundColor: isSelected ? Colors.primary : colors.border },
+                ]}
+                onPress={() => setSelectedCategory(isSelected ? 'all' : category)}
+              >
+                <Text style={[styles.financeFilterText, { color: isSelected ? '#fff' : colors.text }]}>
+                  {category}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {filteredRecords.length === 0 && (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="wallet-outline" size={48} color={colors.textSecondary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>暂无符合条件的记录</Text>
+        </View>
+      )}
+
+      {/* Records List */}
+      {filteredRecords.length > 0 && (
+        <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>消费明细</Text>
+          {filteredRecords.slice(0, 10).map((record) => (
+            <TouchableOpacity
+              key={record.id}
+              style={styles.recordItem}
+              onPress={() => handleEditOpen(record)}
+              onLongPress={() => handleDelete(record)}
+            >
             <View style={styles.recordLeft}>
               <View style={[styles.recordIcon, { backgroundColor: Colors.accentWarm + '20' }]}>
                 <Ionicons name="cart-outline" size={20} color={Colors.accentWarm} />
@@ -184,6 +310,11 @@ function FinanceSection({
                 <Text style={[styles.recordCategory, { color: colors.text }]}>
                   {record.category || '未分类'}
                 </Text>
+                {record.description && (
+                  <Text style={[styles.recordDescription, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {record.description}
+                  </Text>
+                )}
                 <Text style={[styles.recordDate, { color: colors.textSecondary }]}>
                   {new Date(record.created_at).toLocaleDateString('zh-CN')}
                 </Text>
@@ -201,12 +332,67 @@ function FinanceSection({
             </View>
           </TouchableOpacity>
         ))}
-        {records.length > 10 && (
+        {filteredRecords.length > 10 && (
           <Text style={[styles.moreText, { color: colors.textSecondary }]}>
-            还有 {records.length - 10} 条记录...
+            还有 {filteredRecords.length - 10} 条记录...
           </Text>
         )}
       </View>
+      )}
+
+      <Modal
+        visible={!!editingRecord}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingRecord(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.financeModal, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>编辑消费记录</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="金额"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="decimal-pad"
+              value={editAmount}
+              onChangeText={setEditAmount}
+            />
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="分类"
+              placeholderTextColor={colors.textSecondary}
+              value={editCategory}
+              onChangeText={setEditCategory}
+            />
+            <TextInput
+              style={[styles.modalInput, styles.modalTextarea, { color: colors.text, borderColor: colors.border }]}
+              placeholder="描述（可选）"
+              placeholderTextColor={colors.textSecondary}
+              value={editDescription}
+              onChangeText={setEditDescription}
+              multiline
+            />
+            <View style={styles.modalSwitchRow}>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>必要支出</Text>
+              <Switch value={editEssential} onValueChange={setEditEssential} />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.border }]}
+                onPress={() => setEditingRecord(null)}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.text }]}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: Colors.primary }]}
+                onPress={handleEditSave}
+              >
+                <Text style={[styles.modalButtonText, { color: '#fff' }]}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <View style={{ height: 100 }} />
     </View>
   );
@@ -1008,6 +1194,21 @@ export default function DataScreen() {
     if (stats) setFinanceStats(stats);
   };
 
+  const handleUpdateFinance = async (id: string, updates: Partial<FinanceRecord>) => {
+    await updateFinanceRecord(id, updates);
+    setFinanceRecords(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+    const [statsResult, trendResult, categoryResult, weeklyResult] = await Promise.all([
+      getFinanceStats(),
+      getSpendingTrend(7),
+      getCategoryBreakdown(),
+      getWeeklyStats(),
+    ]);
+    if (statsResult.stats) setFinanceStats(statsResult.stats);
+    if (!trendResult.error) setTrendData(trendResult.data);
+    if (!categoryResult.error) setCategoryData(categoryResult.data);
+    if (!weeklyResult.error) setWeeklyStats(weeklyResult.stats);
+  };
+
   const handleToggleAction = async (id: string, status: 'pending' | 'completed') => {
     await updateActionStatus(id, status);
     setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
@@ -1064,6 +1265,7 @@ export default function DataScreen() {
                 weeklyStats={weeklyStats}
                 colorScheme={colorScheme}
                 onDelete={handleDeleteFinance}
+                onUpdate={handleUpdateFinance}
               />
             )}
             {activeTab === 'todo' && (
@@ -1186,6 +1388,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  financeFilterRow: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  financeFilterChips: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 8,
+  },
+  financeFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  financeFilterText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   listSection: {
     borderRadius: 12,
     padding: 16,
@@ -1214,6 +1435,10 @@ const styles = StyleSheet.create({
   recordCategory: {
     fontSize: 15,
     fontWeight: '500',
+  },
+  recordDescription: {
+    fontSize: 12,
+    marginTop: 4,
   },
   recordDate: {
     fontSize: 12,
@@ -1435,6 +1660,59 @@ const styles = StyleSheet.create({
   quantityUnit: {
     fontSize: 13,
     marginLeft: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  financeModal: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    fontSize: 14,
+  },
+  modalTextarea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  modalSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   moreText: {
     fontSize: 13,

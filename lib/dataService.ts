@@ -101,6 +101,22 @@ export async function deleteFinanceRecord(id: string): Promise<{ error: Error | 
   }
 }
 
+export async function updateFinanceRecord(
+  id: string,
+  updates: Partial<Pick<FinanceRecord, 'amount' | 'category' | 'description' | 'is_essential' | 'record_date'>>
+): Promise<{ error: Error | null }> {
+  try {
+    const { error } = await supabase
+      .from('finance_records')
+      .update(updates as any)
+      .eq('id', id);
+
+    return { error };
+  } catch (err) {
+    return { error: err as Error };
+  }
+}
+
 // ============ Actions (Todos) ============
 
 export async function getActions(
