@@ -3,6 +3,7 @@ import type { FinanceRecord, Action, InventoryItem, StorageZone } from './types'
 
 // Default anonymous user ID (for development without auth)
 const ANON_USER_ID = '00000000-0000-0000-0000-000000000000';
+const db = supabase as any;
 
 // ============ Finance Records ============
 
@@ -106,9 +107,9 @@ export async function updateFinanceRecord(
   updates: Partial<Pick<FinanceRecord, 'amount' | 'category' | 'description' | 'is_essential' | 'record_date'>>
 ): Promise<{ error: Error | null }> {
   try {
-    const { error } = await supabase
+    const { error } = await db
       .from('finance_records')
-      .update(updates as any)
+      .update(updates)
       .eq('id', id);
 
     return { error };
@@ -150,16 +151,16 @@ export async function getActions(
 export async function updateActionStatus(
   id: string,
   status: 'pending' | 'completed' | 'snoozed'
-): Promise<{ error: Error | null }> {
+): Promise<{ data: Action | null; error: Error | null }> {
   try {
-    const { error } = await supabase
+    const { error } = await db
       .from('actions')
-      .update({ status } as any)
+      .update({ status })
       .eq('id', id);
 
-    return { error };
+    return { data: null, error };
   } catch (err) {
-    return { error: err as Error };
+    return { data: null, error: err as Error };
   }
 }
 
@@ -168,9 +169,9 @@ export async function updateAction(
   updates: Partial<Pick<Action, 'title' | 'description' | 'type' | 'priority' | 'due_date' | 'status'>>
 ): Promise<{ error: Error | null }> {
   try {
-    const { error } = await supabase
+    const { error } = await db
       .from('actions')
-      .update(updates as any)
+      .update(updates)
       .eq('id', id);
 
     return { error };
@@ -226,9 +227,9 @@ export async function updateInventoryQuantity(
   quantity: number
 ): Promise<{ error: Error | null }> {
   try {
-    const { error } = await supabase
+    const { error } = await db
       .from('inventory_items')
-      .update({ quantity, last_confirmed_at: new Date().toISOString() } as any)
+      .update({ quantity, last_confirmed_at: new Date().toISOString() })
       .eq('id', id);
 
     return { error };

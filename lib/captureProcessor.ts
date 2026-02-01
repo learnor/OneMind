@@ -10,6 +10,8 @@ import {
 import { supabase } from './supabase';
 import { uploadFile, uploadFiles } from './uploadService';
 
+const ANON_USER_ID = '00000000-0000-0000-0000-000000000000';
+
 export type ProcessingStatus = 'uploading' | 'analyzing' | 'saving' | 'completed' | 'failed';
 
 export interface ProcessingProgress {
@@ -130,6 +132,7 @@ async function saveTodoRecord(
     const { error } = await supabase
       .from('actions')
       .insert({
+        user_id: ANON_USER_ID,
         title,
         description,
         type,

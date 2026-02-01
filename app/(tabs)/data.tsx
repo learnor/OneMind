@@ -1385,7 +1385,12 @@ export default function DataScreen() {
   };
 
   const handleToggleAction = async (id: string, status: 'pending' | 'completed') => {
-    await updateActionStatus(id, status);
+    const { error } = await updateActionStatus(id, status);
+    if (error) {
+      Alert.alert('更新失败', error.message || '待办状态更新失败，请重试');
+      return;
+    }
+
     setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
   };
 
