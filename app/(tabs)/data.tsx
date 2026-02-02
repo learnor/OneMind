@@ -12,9 +12,14 @@ import {
   TextInput,
   Switch,
   Pressable,
+  LayoutAnimation,
+  UIManager,
+  Platform,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useRef } from 'react';
 
 import { Colors } from '@/constants/Colors';
 import { useEffectiveColorScheme } from '@/lib/ThemeContext';
@@ -443,6 +448,7 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
   const [editPriority, setEditPriority] = useState<1 | 2 | 3>(2);
   const [editType, setEditType] = useState<Action['type']>('Todo');
   const [editDueDate, setEditDueDate] = useState('');
+  const actionAnimations = useRef(new Map<string, Animated.Value>()).current;
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
@@ -450,6 +456,28 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
       case 2: return Colors.accentWarm;
       default: return Colors.accent;
     }
+  };
+
+  const getActionAnimation = (id: string) => {
+    let value = actionAnimations.get(id);
+    if (!value) {
+      value = new Animated.Value(1);
+      actionAnimations.set(id, value);
+    }
+    return value;
+  };
+
+  const animateAction = (id: string) => {
+    const value = getActionAnimation(id);
+    Animated.sequence([
+      Animated.timing(value, { toValue: 0.96, duration: 90, useNativeDriver: true }),
+      Animated.timing(value, { toValue: 1, duration: 140, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleToggle = (id: string, status: 'pending' | 'completed') => {
+    animateAction(id);
+    onToggle(id, status);
   };
 
   const getPriorityLabel = (priority: number) => {
@@ -685,37 +713,42 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
       {showPending && visiblePending.length > 0 && (
         <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>待完成 ({visiblePending.length})</Text>
-          {visiblePending.map((action) => (
-            <View key={action.id} style={styles.todoItemRow}>
-              <Pressable
-                style={styles.todoLeft}
-                onPress={() => onToggle(action.id, 'completed')}
-                onLongPress={() => handleDelete(action)}
+          {visiblePending.map((action) => {
+            const animation = getActionAnimation(action.id);
+            return (
+              <Animated.View
+                key={action.id}
+                style={[styles.todoItemRow, { transform: [{ scale: animation }], opacity: animation }]}
               >
-                <View style={[styles.checkbox, { borderColor: colors.border }]}>
-                  <View style={styles.checkboxInner} />
-                </View>
-                <View style={styles.todoContent}>
-                  <Text style={[styles.todoTitle, { color: colors.text }]}>{action.title}</Text>
-                  <View style={styles.todoMeta}>
-                    <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(action.priority) + '20' }]}
-                    >
-                      <Text style={[styles.priorityText, { color: getPriorityColor(action.priority) }]}>
-                        {getPriorityLabel(action.priority)}优先
-                      </Text>
-                    </View>
-                    <Text style={[styles.todoType, { color: colors.textSecondary }]}>{action.type}</Text>
-                    {action.due_date && (
-                      <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>截止 {action.due_date}</Text>
-                    )}
+                <Pressable
+                  style={styles.todoLeft}
+                  onPress={() => handleToggle(action.id, 'completed')}
+                  onLongPress={() => handleDelete(action)}
+                >
+                  <View style={[styles.checkbox, { borderColor: colors.border }]}>
+                    <View style={styles.checkboxInner} />
                   </View>
-                </View>
-              </Pressable>
-              <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
-                <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                  <View style={styles.todoContent}>
+                    <Text style={[styles.todoTitle, { color: colors.text }]}>{action.title}</Text>
+                    <View style={styles.todoMeta}>
+                      <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(action.priority) + '20' }]}>
+                        <Text style={[styles.priorityText, { color: getPriorityColor(action.priority) }]}>
+                          {getPriorityLabel(action.priority)}优先
+                        </Text>
+                      </View>
+                      <Text style={[styles.todoType, { color: colors.textSecondary }]}>{action.type}</Text>
+                      {action.due_date && (
+                        <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>截止 {action.due_date}</Text>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+                <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
+                  <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
         </View>
       )}
 
@@ -723,26 +756,31 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
       {completedActions.length > 0 && (
         <View style={[styles.listSection, { backgroundColor: colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>已完成 ({completedActions.length})</Text>
-          {completedActions.map((action) => (
-            <View key={action.id} style={styles.todoItemRow}>
-              <Pressable
-                style={[styles.todoLeft, styles.todoCompleted]}
-                onPress={() => onToggle(action.id, 'pending')}
-                onLongPress={() => handleDelete(action)}
+          {completedActions.map((action) => {
+            const animation = getActionAnimation(action.id);
+            return (
+              <Animated.View
+                key={action.id}
+                style={[styles.todoItemRow, { transform: [{ scale: animation }], opacity: animation }]}
               >
-                <View style={[styles.checkbox, styles.checkboxChecked, { borderColor: Colors.success }]}
+                <Pressable
+                  style={[styles.todoLeft, styles.todoCompleted]}
+                  onPress={() => handleToggle(action.id, 'pending')}
+                  onLongPress={() => handleDelete(action)}
                 >
-                  <Ionicons name="checkmark" size={14} color={Colors.success} />
-                </View>
-                <Text style={[styles.todoTitle, styles.todoTitleCompleted, { color: colors.textSecondary }]}>
-                  {action.title}
-                </Text>
-              </Pressable>
-              <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
-                <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                  <View style={[styles.checkbox, styles.checkboxChecked, { borderColor: Colors.success }]}>
+                    <Ionicons name="checkmark" size={14} color={Colors.success} />
+                  </View>
+                  <Text style={[styles.todoTitle, styles.todoTitleCompleted, { color: colors.textSecondary }]}>
+                    {action.title}
+                  </Text>
+                </Pressable>
+                <TouchableOpacity style={styles.todoEditButton} onPress={() => handleEditOpen(action)}>
+                  <Ionicons name="pencil-outline" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
         </View>
       )}
       <View style={{ height: 100 }} />
@@ -1240,6 +1278,12 @@ export default function DataScreen() {
   // Initialize activeTab
   const [activeTab, setActiveTab] = useState<TabType>('finance');
 
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
   // Update activeTab from URL params
   useEffect(() => {
     if (params.tab && ['finance', 'todo', 'inventory'].includes(params.tab)) {
@@ -1391,6 +1435,7 @@ export default function DataScreen() {
       return;
     }
 
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
   };
 

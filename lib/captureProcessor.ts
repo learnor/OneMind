@@ -143,6 +143,28 @@ async function saveTodoRecord(
       } as any);
 
     if (error) {
+      if ((error as any)?.code === '23503') {
+        const fallback = await supabase
+          .from('actions')
+          .insert({
+            title,
+            description,
+            type,
+            priority,
+            due_date: data.due_date,
+            status: 'pending',
+            session_id: sessionId,
+          } as any);
+
+        if (fallback.error) {
+          console.error('Failed to save todo (fallback):', fallback.error);
+          return false;
+        }
+
+        console.warn('Todo saved without user_id (fallback)');
+        return true;
+      }
+
       console.error('Failed to save todo:', error);
       return false;
     }
