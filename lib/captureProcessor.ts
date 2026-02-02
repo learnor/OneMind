@@ -6,6 +6,7 @@ import {
   processVoiceInput,
   processVoiceInputBatch,
   TodoData,
+  inferTodoCategoryFromText,
 } from './aiService';
 import { supabase } from './supabase';
 import { uploadFile, uploadFiles } from './uploadService';
@@ -128,6 +129,7 @@ async function saveTodoRecord(
     const type = data.type || 'Todo';
     const priority = data.priority || 2;
     const description = data.description || null;
+    const category = data.category || inferTodoCategoryFromText(`${title} ${description || ''}`.trim());
 
     const { error } = await supabase
       .from('actions')
@@ -138,6 +140,10 @@ async function saveTodoRecord(
         type,
         priority,
         due_date: data.due_date,
+        remind_at: data.remind_at,
+        repeat_rule: data.repeat_rule || null,
+        repeat_interval: data.repeat_interval ?? null,
+        category,
         status: 'pending',
         session_id: sessionId,
       } as any);
@@ -152,6 +158,10 @@ async function saveTodoRecord(
             type,
             priority,
             due_date: data.due_date,
+            remind_at: data.remind_at,
+            repeat_rule: data.repeat_rule || null,
+            repeat_interval: data.repeat_interval ?? null,
+            category,
             status: 'pending',
             session_id: sessionId,
           } as any);

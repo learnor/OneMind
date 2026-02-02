@@ -166,7 +166,7 @@ export async function updateActionStatus(
 
 export async function updateAction(
   id: string,
-  updates: Partial<Pick<Action, 'title' | 'description' | 'type' | 'priority' | 'due_date' | 'status'>>
+  updates: Partial<Pick<Action, 'title' | 'description' | 'type' | 'priority' | 'due_date' | 'status' | 'remind_at' | 'repeat_rule' | 'repeat_interval' | 'category'>>
 ): Promise<{ error: Error | null }> {
   try {
     const { error } = await db
@@ -177,6 +177,22 @@ export async function updateAction(
     return { error };
   } catch (err) {
     return { error: err as Error };
+  }
+}
+
+export async function createAction(
+  action: Omit<Action, 'id'>
+): Promise<{ data: Action | null; error: Error | null }> {
+  try {
+    const { data, error } = await db
+      .from('actions')
+      .insert(action)
+      .select('*')
+      .single();
+
+    return { data: (data as unknown as Action) ?? null, error };
+  } catch (err) {
+    return { data: null, error: err as Error };
   }
 }
 

@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getExpiringItems, getActions } from './dataService';
+import type { Action } from './types';
 
 // Storage keys
 const NOTIFICATION_ENABLED_KEY = '@OneMind:notifications_enabled';
@@ -309,7 +310,7 @@ async function checkUrgentTodos(): Promise<{ urgent: number; overdue: number }> 
       }
 
       // High priority items are also considered urgent
-      if (action.priority === 'high' && action.status === 'pending') {
+      if (action.priority === 3 && action.status === 'pending') {
         urgent++;
       }
     }
@@ -408,4 +409,91 @@ export async function getUrgentCounts(): Promise<{
     urgentTodos: todoStatus.urgent,
     overdueTodos: todoStatus.overdue,
   };
+}
+
+// ============ Action Notifications ============
+
+const DEFAULT_REMIND_HOUR = 9;
+const remindNotificationId = (id: string) => `action-${id}-remind`;
+const dueNotificationId = (id: string) => `action-${id}-due`;
+
+function parseDateTime(value: string | null, fallbackHour = DEFAULT_REMIND_HOUR): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+  const withTime = trimmed.includes(' ') && !trimmed.includes('T') ? trimmed.replace(' ', 'T') : trimmed;
+  const date = new Date(isDateOnly ? `${trimmed}T${String(fallbackHour).padStart(2, '0')}:00:00` : withTime);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+export function formatDueCountdown(dueDate: Date | null) {
+  if (!dueDate) return '';
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const end = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  const diffDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays < 0) return '已过期';
+  if (diffDays === 0) return '今天截止';
+  return `${diffDays}天后截止`;
+}
+
+export async function cancelActionNotifications(actionId: string) {
+  await Promise.all([
+    Notifications.cancelScheduledNotificationAsync(remindNotificationId(actionId)).catch(() => null),
+    Notifications.cancelScheduledNotificationAsync(dueNotificationId(actionId)).catch(() => null),
+  ]);
+}
+
+export async function scheduleActionNotifications(action: Action) {
+  if (action.status === 'completed') {
+    await cancelActionNotifications(action.id);
+    return;
+  }
+
+  const enabled = await isNotificationEnabled();
+  if (!enabled) return;
+
+  const hasPermission = await requestNotificationPermissions();
+  if (!hasPermission) return;
+
+  await cancelActionNotifications(action.id);
+
+  const dueDate = parseDateTime(action.due_date, DEFAULT_REMIND_HOUR);
+  const remindDate = parseDateTime(action.remind_at, DEFAULT_REMIND_HOUR) || (action.remind_at ? null : dueDate);
+  const countdownText = formatDueCountdown(dueDate);
+  const bodySuffix = countdownText ? ` · ${countdownText}` : '';
+
+  if (remindDate && remindDate.getTime() > Date.now()) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: remindNotificationId(action.id),
+      content: {
+        title: action.title,
+        body: `${action.category || '待办提醒'}${bodySuffix}`,
+        data: { actionId: action.id },
+        sound: true,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: remindDate },
+    });
+  }
+
+  if (dueDate && (!remindDate || !isSameDay(remindDate, dueDate)) && dueDate.getTime() > Date.now()) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: dueNotificationId(action.id),
+      content: {
+        title: action.title,
+        body: `到期提醒${bodySuffix}`,
+        data: { actionId: action.id },
+        sound: true,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: dueDate },
+    });
+  }
 }

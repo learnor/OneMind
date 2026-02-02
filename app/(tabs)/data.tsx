@@ -25,6 +25,7 @@ import { Colors } from '@/constants/Colors';
 import { useEffectiveColorScheme } from '@/lib/ThemeContext';
 import { useNavigation } from '@/lib/navigationContext';
 import { navigationEvents } from '@/lib/navigationEvents';
+import { scheduleActionNotifications, cancelActionNotifications, formatDueCountdown } from '@/lib/notificationService';
 import {
   FinanceSkeleton,
   TodoSkeleton,
@@ -44,6 +45,7 @@ import {
   getActions,
   updateActionStatus,
   updateAction,
+  createAction,
   deleteAction,
   getInventoryItems,
   updateInventoryQuantity,
@@ -448,6 +450,10 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
   const [editPriority, setEditPriority] = useState<1 | 2 | 3>(2);
   const [editType, setEditType] = useState<Action['type']>('Todo');
   const [editDueDate, setEditDueDate] = useState('');
+  const [editRemindAt, setEditRemindAt] = useState('');
+  const [editRepeatRule, setEditRepeatRule] = useState<string>('none');
+  const [editRepeatInterval, setEditRepeatInterval] = useState('');
+  const [editCategory, setEditCategory] = useState('');
   const actionAnimations = useRef(new Map<string, Animated.Value>()).current;
 
   const getPriorityColor = (priority: number) => {
@@ -488,6 +494,46 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
     }
   };
 
+  const categoryOptions = ['工作', '生活', '学习', '健康', '购物', '出行', '灵感', '其他'];
+  const repeatOptions: Array<{ label: string; value: string }> = [
+    { label: '不重复', value: 'none' },
+    { label: '每天', value: 'daily' },
+    { label: '每周', value: 'weekly' },
+    { label: '每月', value: 'monthly' },
+    { label: '自定义', value: 'custom' },
+  ];
+
+  const getCountdownText = (dueDate: string | null) => {
+    if (!dueDate) return '';
+    const date = new Date(dueDate.length === 10 ? `${dueDate}T00:00:00` : dueDate);
+    if (Number.isNaN(date.getTime())) return '';
+    return formatDueCountdown(date);
+  };
+
+  const isFutureTask = (dueDate: string | null) => {
+    if (!dueDate) return false;
+    const date = new Date(dueDate.length === 10 ? `${dueDate}T00:00:00` : dueDate);
+    if (Number.isNaN(date.getTime())) return false;
+    const now = new Date();
+    return date.getTime() - now.getTime() > 24 * 60 * 60 * 1000;
+  };
+
+  const getRepeatLabel = (action: Action) => {
+    if (!action.repeat_rule) return null;
+    switch (action.repeat_rule) {
+      case 'daily':
+        return '每日重复';
+      case 'weekly':
+        return '每周重复';
+      case 'monthly':
+        return '每月重复';
+      case 'custom':
+        return action.repeat_interval ? `每${action.repeat_interval}天` : '自定义重复';
+      default:
+        return '重复';
+    }
+  };
+
   const handleDelete = (action: Action) => {
     Alert.alert('删除任务', '确定要删除这条任务吗？', [
       { text: '取消', style: 'cancel' },
@@ -502,6 +548,10 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
     setEditPriority(action.priority || 2);
     setEditType(action.type || 'Todo');
     setEditDueDate(action.due_date || '');
+    setEditRemindAt(action.remind_at || '');
+    setEditRepeatRule(action.repeat_rule || 'none');
+    setEditRepeatInterval(action.repeat_interval ? String(action.repeat_interval) : '');
+    setEditCategory(action.category || '');
   };
 
   const handleEditSave = () => {
@@ -512,12 +562,25 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
       return;
     }
 
+    const repeatIntervalValue = editRepeatRule === 'custom'
+      ? Number(editRepeatInterval)
+      : undefined;
+
+    if (editRepeatRule === 'custom' && (!Number.isFinite(repeatIntervalValue) || (repeatIntervalValue ?? 0) <= 0)) {
+      Alert.alert('重复间隔错误', '请输入有效的重复间隔（天）');
+      return;
+    }
+
     onUpdate(editingAction.id, {
       title: trimmedTitle,
       description: editDescription.trim() || null,
       priority: editPriority,
       type: editType,
       due_date: editDueDate.trim() || null,
+      remind_at: editRemindAt.trim() || null,
+      repeat_rule: editRepeatRule === 'none' ? null : editRepeatRule,
+      repeat_interval: editRepeatRule === 'custom' ? (repeatIntervalValue ?? null) : null,
+      category: editCategory.trim() || null,
     });
 
     setEditingAction(null);
@@ -646,6 +709,29 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
               onChangeText={setEditDescription}
               multiline
             />
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="分类（可选）"
+              placeholderTextColor={colors.textSecondary}
+              value={editCategory}
+              onChangeText={setEditCategory}
+            />
+            <View style={styles.todoEditChips}>
+              {categoryOptions.map((category) => {
+                const isSelected = editCategory === category;
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    style={[styles.todoEditChip, { backgroundColor: isSelected ? Colors.primary : colors.border }]}
+                    onPress={() => setEditCategory(category)}
+                  >
+                    <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                      {category}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <View style={styles.todoEditRow}>
               <Text style={[styles.modalLabel, { color: colors.text }]}>优先级</Text>
               <View style={styles.todoEditChips}>
@@ -658,7 +744,9 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
                       style={[styles.todoEditChip, { backgroundColor: isSelected ? color : colors.border }]}
                       onPress={() => setEditPriority(level as 1 | 2 | 3)}
                     >
-                      <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>P{level}</Text>
+                      <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                        P{level}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -690,6 +778,42 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
               value={editDueDate}
               onChangeText={setEditDueDate}
             />
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+              placeholder="提醒时间 (YYYY-MM-DD HH:mm)"
+              placeholderTextColor={colors.textSecondary}
+              value={editRemindAt}
+              onChangeText={setEditRemindAt}
+            />
+            <View style={styles.todoEditRow}>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>重复</Text>
+              <View style={styles.todoEditChips}>
+                {repeatOptions.map((option) => {
+                  const isSelected = editRepeatRule === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.todoEditChip, { backgroundColor: isSelected ? Colors.primary : colors.border }]}
+                      onPress={() => setEditRepeatRule(option.value)}
+                    >
+                      <Text style={[styles.todoEditChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            {editRepeatRule === 'custom' && (
+              <TextInput
+                style={[styles.modalInput, { color: colors.text, borderColor: colors.border }]}
+                placeholder="每 N 天"
+                placeholderTextColor={colors.textSecondary}
+                value={editRepeatInterval}
+                onChangeText={setEditRepeatInterval}
+                keyboardType="number-pad"
+              />
+            )}
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: colors.border }]}
@@ -715,6 +839,8 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
           <Text style={[styles.sectionTitle, { color: colors.text }]}>待完成 ({visiblePending.length})</Text>
           {visiblePending.map((action) => {
             const animation = getActionAnimation(action.id);
+            const countdown = getCountdownText(action.due_date);
+            const future = isFutureTask(action.due_date);
             return (
               <Animated.View
                 key={action.id}
@@ -732,13 +858,28 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
                     <Text style={[styles.todoTitle, { color: colors.text }]}>{action.title}</Text>
                     <View style={styles.todoMeta}>
                       <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(action.priority) + '20' }]}>
-                        <Text style={[styles.priorityText, { color: getPriorityColor(action.priority) }]}>
+                        <Text style={[styles.priorityText, { color: getPriorityColor(action.priority) }]}
+                        >
                           {getPriorityLabel(action.priority)}优先
                         </Text>
                       </View>
                       <Text style={[styles.todoType, { color: colors.textSecondary }]}>{action.type}</Text>
-                      {action.due_date && (
-                        <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>截止 {action.due_date}</Text>
+                      {action.category && (
+                        <Text style={[styles.todoCategory, { color: colors.textSecondary }]}>{action.category}</Text>
+                      )}
+                      {countdown && (
+                        <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>{countdown}</Text>
+                      )}
+                      {action.remind_at && (
+                        <Text style={[styles.todoRemindAt, { color: colors.textSecondary }]}>提醒 {action.remind_at}</Text>
+                      )}
+                      {getRepeatLabel(action) && (
+                        <Text style={[styles.todoRepeat, { color: colors.textSecondary }]}>{getRepeatLabel(action)}</Text>
+                      )}
+                      {future && (
+                        <View style={[styles.todoFutureBadge, { backgroundColor: Colors.primary + '15' }]}>
+                          <Text style={[styles.todoFutureText, { color: Colors.primary }]}>未来</Text>
+                        </View>
                       )}
                     </View>
                   </View>
@@ -1339,6 +1480,70 @@ export default function DataScreen() {
   const [categoryData, setCategoryData] = useState<CategoryChartData[]>([]);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats>({ thisWeek: 0, lastWeek: 0, averageDaily: 0 });
 
+  const parseDateOnly = (value: string | null) => {
+    if (!value) return null;
+    const normalized = value.length === 10 ? `${value}T00:00:00` : value;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const parseDateTimeValue = (value: string | null, fallbackHour = 9) => {
+    if (!value) return null;
+    const normalized = value.length === 10
+      ? `${value}T${String(fallbackHour).padStart(2, '0')}:00:00`
+      : value.includes(' ') && !value.includes('T')
+        ? value.replace(' ', 'T')
+        : value;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const formatDateOnly = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const addDays = (date: Date, days: number) => {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+  };
+
+  const addMonths = (date: Date, months: number) => {
+    const next = new Date(date);
+    next.setMonth(next.getMonth() + months);
+    return next;
+  };
+
+  const getNextDueDate = (action: Action) => {
+    const dueDate = parseDateOnly(action.due_date);
+    if (!dueDate) return null;
+
+    switch (action.repeat_rule) {
+      case 'daily':
+        return addDays(dueDate, 1);
+      case 'weekly':
+        return addDays(dueDate, 7);
+      case 'monthly':
+        return addMonths(dueDate, 1);
+      case 'custom':
+        return action.repeat_interval ? addDays(dueDate, action.repeat_interval) : null;
+      default:
+        return null;
+    }
+  };
+
+  const getShiftedRemindAt = (action: Action, nextDue: Date) => {
+    if (!action.remind_at) return null;
+    const remindDate = parseDateTimeValue(action.remind_at);
+    const dueDate = parseDateTimeValue(action.due_date);
+    if (!remindDate || !dueDate) return null;
+    const delta = remindDate.getTime() - dueDate.getTime();
+    return new Date(nextDue.getTime() + delta);
+  };
+
   const tabs: { key: TabType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: 'finance', label: '消费', icon: 'wallet-outline' },
     { key: 'todo', label: '待办', icon: 'checkbox-outline' },
@@ -1354,6 +1559,58 @@ export default function DataScreen() {
       }
     }, [params.tab])
   );
+
+  const ensureRepeatActions = async (items: Action[]) => {
+    const now = new Date();
+    let created = false;
+
+    for (const action of items) {
+      if (action.status !== 'completed') continue;
+      if (!action.repeat_rule || !action.due_date) continue;
+
+      const dueDate = parseDateOnly(action.due_date);
+      if (!dueDate) continue;
+
+      const createAt = addDays(dueDate, -2);
+      if (now.getTime() < createAt.getTime()) continue;
+
+      const nextDue = getNextDueDate(action);
+      if (!nextDue) continue;
+
+      const nextDueValue = formatDateOnly(nextDue);
+      const exists = items.some((item) => item.title === action.title && item.due_date === nextDueValue);
+      if (exists) continue;
+
+      const nextRemindDate = getShiftedRemindAt(action, nextDue);
+      const nextRemindValue = nextRemindDate
+        ? `${formatDateOnly(nextRemindDate)} ${String(nextRemindDate.getHours()).padStart(2, '0')}:${String(nextRemindDate.getMinutes()).padStart(2, '0')}`
+        : null;
+
+      const payload: Omit<Action, 'id'> = {
+        user_id: action.user_id,
+        title: action.title,
+        description: action.description,
+        type: action.type,
+        priority: action.priority,
+        due_date: nextDueValue,
+        remind_at: nextRemindValue,
+        repeat_rule: action.repeat_rule,
+        repeat_interval: action.repeat_interval,
+        category: action.category,
+        trigger_type: action.trigger_type,
+        trigger_value: action.trigger_value,
+        status: 'pending',
+        related_inventory_id: action.related_inventory_id,
+      };
+
+      const result = await createAction(payload);
+      if (!result.error) {
+        created = true;
+      }
+    }
+
+    return created;
+  };
 
   const loadData = async () => {
     // Load all data in parallel
@@ -1377,7 +1634,21 @@ export default function DataScreen() {
 
     if (!financeResult.error) setFinanceRecords(financeResult.data);
     if (!statsResult.error) setFinanceStats(statsResult.stats);
-    if (!actionsResult.error) setActions(actionsResult.data);
+
+    if (!actionsResult.error) {
+      const created = await ensureRepeatActions(actionsResult.data);
+      if (created) {
+        const refreshed = await getActions();
+        if (!refreshed.error) {
+          setActions(refreshed.data);
+        } else {
+          setActions(actionsResult.data);
+        }
+      } else {
+        setActions(actionsResult.data);
+      }
+    }
+
     if (!inventoryResult.error) setInventoryItems(inventoryResult.data);
     if (!trendResult.error) setTrendData(trendResult.data);
     if (!categoryResult.error) setCategoryData(categoryResult.data);
@@ -1391,6 +1662,21 @@ export default function DataScreen() {
     await loadData();
     setRefreshing(false);
   };
+
+  useEffect(() => {
+    if (actions.length === 0) return;
+    const syncNotifications = async () => {
+      await Promise.all(
+        actions.map((action) =>
+          action.status === 'completed'
+            ? cancelActionNotifications(action.id)
+            : scheduleActionNotifications(action)
+        )
+      );
+    };
+
+    syncNotifications();
+  }, [actions]);
 
   // Render skeleton based on active tab
   const renderSkeleton = () => {
@@ -1751,8 +2037,26 @@ const styles = StyleSheet.create({
   todoType: {
     fontSize: 12,
   },
+  todoCategory: {
+    fontSize: 12,
+  },
   todoDueDate: {
     fontSize: 12,
+  },
+  todoRemindAt: {
+    fontSize: 12,
+  },
+  todoRepeat: {
+    fontSize: 12,
+  },
+  todoFutureBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  todoFutureText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   todoEditButton: {
     paddingHorizontal: 8,

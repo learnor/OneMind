@@ -36,6 +36,10 @@ export interface TodoData {
   type: 'Todo' | 'Reminder' | 'Inspiration';
   priority: 1 | 2 | 3;
   due_date?: string;
+  remind_at?: string;
+  repeat_rule?: string;
+  repeat_interval?: number;
+  category?: string;
 }
 
 import type { StorageZone } from './types';
@@ -84,6 +88,10 @@ const SYSTEM_PROMPT = `你是 OneMind 的智能助手，负责分析用户的语
        * 2: 重要但不紧急或紧急但不重要
        * 1: 一般任务
      * due_date: 截止日期（YYYY-MM-DD，可选）
+     * remind_at: 提醒时间（YYYY-MM-DD HH:mm，可选）
+     * repeat_rule: 重复规则（none/daily/weekly/monthly/custom，可选）
+     * repeat_interval: 自定义重复间隔（数字，配合 repeat_rule=custom，可选）
+     * category: 分类（自由文本，如 工作/生活/学习/健康/购物/出行/灵感）
 
 3. **物品库存 (inventory)** - 任何关于物品、食物、日用品的记录
    - 关键词：买了、存入、剩余、还有、补充、库存等
@@ -370,14 +378,21 @@ function normalizeRouteResponse(response: AIRouteResponse): AIRouteResponse {
 
   if (response.route_type === 'todo') {
     const data = response.data as TodoData | null;
+    const priorityValue = Number(data?.priority);
+    const ruleCategory = inferTodoCategoryFromText(`${data?.title || ''} ${data?.description || ''}`.trim());
+    const category = ruleCategory !== '未分类' ? ruleCategory : (data?.category || ruleCategory);
     return {
       ...response,
       data: {
         title: data?.title || response.summary || '未命名任务',
         description: data?.description,
         type: data?.type || 'Todo',
-        priority: data?.priority || 2,
+        priority: Number.isFinite(priorityValue) && priorityValue >= 1 && priorityValue <= 3 ? (priorityValue as 1 | 2 | 3) : 2,
         due_date: data?.due_date,
+        remind_at: data?.remind_at,
+        repeat_rule: data?.repeat_rule,
+        repeat_interval: data?.repeat_interval,
+        category,
       },
     };
   }
@@ -404,6 +419,29 @@ function buildSummaryFromText(content: string) {
   const cleaned = content.replace(/\s+/g, ' ').trim();
   if (!cleaned) return '内容为空';
   return cleaned.length > 40 ? `${cleaned.slice(0, 40)}...` : cleaned;
+}
+
+export function inferTodoCategoryFromText(content: string): string {
+  const cleaned = content.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '未分类';
+
+  const categories: Array<{ label: string; keywords: string[] }> = [
+    { label: '工作', keywords: ['会议', '客户', '方案', '汇报', '项目', '同事', '周报', '对接'] },
+    { label: '学习', keywords: ['学习', '课程', '复习', '作业', '考试', '阅读', '笔记'] },
+    { label: '健康', keywords: ['健身', '跑步', '体检', '吃药', '看医生', '锻炼'] },
+    { label: '购物', keywords: ['买', '采购', '下单', '超市', '购物', '快递'] },
+    { label: '出行', keywords: ['出差', '旅行', '机票', '高铁', '航班', '酒店'] },
+    { label: '生活', keywords: ['家务', '缴费', '水电', '收拾', '做饭', '打扫'] },
+    { label: '灵感', keywords: ['灵感', '想法', '点子', 'idea', '主意'] },
+  ];
+
+  for (const category of categories) {
+    if (category.keywords.some((keyword) => cleaned.includes(keyword))) {
+      return category.label;
+    }
+  }
+
+  return '未分类';
 }
 
 function inferRouteFromText(content: string): AIRouteResponse | null {
@@ -462,6 +500,7 @@ function inferRouteFromText(content: string): AIRouteResponse | null {
         description: undefined,
         type: 'Todo',
         priority: 2,
+        category: inferTodoCategoryFromText(cleaned),
       },
     };
   }
