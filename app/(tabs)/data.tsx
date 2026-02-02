@@ -841,6 +841,7 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
             const animation = getActionAnimation(action.id);
             const countdown = getCountdownText(action.due_date);
             const future = isFutureTask(action.due_date);
+            const repeatLabel = getRepeatLabel(action);
             return (
               <Animated.View
                 key={action.id}
@@ -863,22 +864,32 @@ function TodoSection({ actions, colorScheme, onToggle, onDelete, onUpdate }: Tod
                           {getPriorityLabel(action.priority)}优先
                         </Text>
                       </View>
-                      <Text style={[styles.todoType, { color: colors.textSecondary }]}>{action.type}</Text>
+                      <View style={[styles.todoTag, { backgroundColor: colors.border }]}>
+                        <Text style={[styles.todoTagText, { color: colors.textSecondary }]}>{action.type}</Text>
+                      </View>
                       {action.category && (
-                        <Text style={[styles.todoCategory, { color: colors.textSecondary }]}>{action.category}</Text>
+                        <View style={[styles.todoTag, { backgroundColor: colors.border }]}>
+                          <Text style={[styles.todoTagText, { color: colors.textSecondary }]}>{action.category}</Text>
+                        </View>
                       )}
                       {countdown && (
-                        <Text style={[styles.todoDueDate, { color: colors.textSecondary }]}>{countdown}</Text>
+                        <View style={[styles.todoTag, { backgroundColor: Colors.primary + '12' }]}>
+                          <Text style={[styles.todoTagText, { color: Colors.primary }]}>{countdown}</Text>
+                        </View>
                       )}
                       {action.remind_at && (
-                        <Text style={[styles.todoRemindAt, { color: colors.textSecondary }]}>提醒 {action.remind_at}</Text>
+                        <View style={[styles.todoTag, { backgroundColor: Colors.accent + '12' }]}>
+                          <Text style={[styles.todoTagText, { color: Colors.accent }]}>提醒 {action.remind_at}</Text>
+                        </View>
                       )}
-                      {getRepeatLabel(action) && (
-                        <Text style={[styles.todoRepeat, { color: colors.textSecondary }]}>{getRepeatLabel(action)}</Text>
+                      {repeatLabel && (
+                        <View style={[styles.todoTag, { backgroundColor: Colors.accentWarm + '12' }]}>
+                          <Text style={[styles.todoTagText, { color: Colors.accentWarm }]}>{repeatLabel}</Text>
+                        </View>
                       )}
                       {future && (
-                        <View style={[styles.todoFutureBadge, { backgroundColor: Colors.primary + '15' }]}>
-                          <Text style={[styles.todoFutureText, { color: Colors.primary }]}>未来</Text>
+                        <View style={[styles.todoTag, { backgroundColor: Colors.primary + '12' }]}>
+                          <Text style={[styles.todoTagText, { color: Colors.primary }]}>未来</Text>
                         </View>
                       )}
                     </View>
@@ -1604,8 +1615,9 @@ export default function DataScreen() {
       };
 
       const result = await createAction(payload);
-      if (!result.error) {
+      if (!result.error && result.data) {
         created = true;
+        await scheduleActionNotifications(result.data);
       }
     }
 
@@ -1723,6 +1735,16 @@ export default function DataScreen() {
 
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActions(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+
+    const action = actions.find((item) => item.id === id);
+    if (action) {
+      const updated = { ...action, status } as Action;
+      if (status === 'completed') {
+        await cancelActionNotifications(id);
+      } else {
+        await scheduleActionNotifications(updated);
+      }
+    }
   };
 
   const handleDeleteAction = async (id: string) => {
@@ -1733,6 +1755,15 @@ export default function DataScreen() {
   const handleUpdateAction = async (id: string, updates: Partial<Action>) => {
     await updateAction(id, updates);
     setActions(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    const updatedAction = actions.find((a) => a.id === id);
+    if (updatedAction) {
+      const merged = { ...updatedAction, ...updates } as Action;
+      if (merged.status === 'completed') {
+        await cancelActionNotifications(id);
+      } else {
+        await scheduleActionNotifications(merged);
+      }
+    }
   };
 
   const handleUpdateInventoryQty = async (id: string, quantity: number) => {
@@ -2022,8 +2053,9 @@ const styles = StyleSheet.create({
   todoMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 6,
+    gap: 6,
   },
   priorityBadge: {
     paddingHorizontal: 8,
@@ -2039,6 +2071,15 @@ const styles = StyleSheet.create({
   },
   todoCategory: {
     fontSize: 12,
+  },
+  todoTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  todoTagText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   todoDueDate: {
     fontSize: 12,
